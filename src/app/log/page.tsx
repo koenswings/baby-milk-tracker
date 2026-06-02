@@ -84,7 +84,7 @@ export default function LogPage() {
             onChange={(e) => setVolume(e.target.value)}
             min="1"
             max="500"
-            step="5"
+            step="any"
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
           />
         </div>
