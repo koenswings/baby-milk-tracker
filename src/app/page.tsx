@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { getFeeds, getSettings } from "@/lib/store";
 import {
   deriveSettings,
@@ -13,9 +13,29 @@ import StatusBadge from "@/components/StatusBadge";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
 
-function formatTime(ms: number): string {
+function isToday(ms: number): boolean {
   const d = new Date(ms);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const t = new Date();
+  return d.getDate() === t.getDate() &&
+    d.getMonth() === t.getMonth() &&
+    d.getFullYear() === t.getFullYear();
+}
+
+function isTomorrow(ms: number): boolean {
+  const d = new Date(ms);
+  const t = new Date();
+  t.setDate(t.getDate() + 1);
+  return d.getDate() === t.getDate() &&
+    d.getMonth() === t.getMonth() &&
+    d.getFullYear() === t.getFullYear();
+}
+
+function formatDateTime(ms: number): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (isToday(ms)) return time;
+  if (isTomorrow(ms)) return `tomorrow ${time}`;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + time;
 }
 
 function formatRelative(ms: number, now: number): string {
@@ -34,19 +54,36 @@ export default function Dashboard() {
   const [derived, setDerived] = useState<DerivedSettings | null>(null);
   const [now, setNow] = useState(Date.now());
 
+  const load = useCallback(async () => {
+    const [f, s] = await Promise.all([getFeeds(), getSettings()]);
+    setFeeds(f);
+    setSettings(s);
+    setDerived(deriveSettings(s));
+    setNow(Date.now());
+  }, []);
+
   useEffect(() => {
-    async function load() {
-      const [f, s] = await Promise.all([getFeeds(), getSettings()]);
-      setFeeds(f);
-      setSettings(s);
-      setDerived(deriveSettings(s));
-    }
     load();
 
     // Refresh every minute
-    const interval = setInterval(() => setNow(Date.now()), 60000);
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(() => { load(); }, 60000);
+
+    // Also reload when localStorage changes (e.g. after CSV import)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "bmt_feeds" || e.key === "bmt_settings") load();
+    };
+    window.addEventListener("storage", onStorage);
+
+    // Reload on page focus (handles same-tab navigation back from Settings)
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [load]);
 
   if (!settings || !derived) {
     return (
@@ -106,10 +143,12 @@ export default function Dashboard() {
       <div className="bg-slate-800 rounded-xl p-4 mb-4">
         <div className="text-sm text-slate-400 mb-1">Next suggested feed</div>
         {nextFeed ? (
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl font-semibold text-blue-300">{formatTime(nextFeed)}</span>
-            <span className="text-slate-400 text-sm">{formatRelative(nextFeed, now)}</span>
-          </div>
+          <>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-semibold text-blue-300">{formatDateTime(nextFeed)}</span>
+            </div>
+            <div className="text-sm text-slate-400 mt-0.5">{formatRelative(nextFeed, now)}</div>
+          </>
         ) : (
           <span className="text-slate-400">No feeds logged yet</span>
         )}
@@ -123,7 +162,7 @@ export default function Dashboard() {
         <div className="bg-slate-800 rounded-xl p-4 mb-4">
           <div className="text-sm text-slate-400 mb-1">Last feed</div>
           <div className="flex items-baseline gap-2">
-            <span className="text-xl font-semibold text-slate-200">{formatTime(lastFeed.timestamp)}</span>
+            <span className="text-xl font-semibold text-slate-200">{formatDateTime(lastFeed.timestamp)}</span>
             <span className="text-slate-400 text-sm">{lastFeed.volume} ml</span>
           </div>
           <div className="text-xs text-slate-500 mt-1">

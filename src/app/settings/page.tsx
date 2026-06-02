@@ -5,6 +5,7 @@ import { getSettings, saveSettings, getFeeds, saveFeeds, generateId } from "@/li
 import { deriveSettings } from "@/lib/calculations";
 import { Settings, Feed } from "@/types";
 import BottomNav from "@/components/BottomNav";
+import { useRouter } from "next/navigation";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({
@@ -16,6 +17,7 @@ export default function SettingsPage() {
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     getSettings().then(setSettings);
@@ -63,8 +65,8 @@ export default function SettingsPage() {
     const existing = await getFeeds();
     await saveFeeds([...existing, ...feeds]);
     setImportText("");
-    setImportMsg(`✓ Imported ${feeds.length} feeds${skipped ? `, skipped ${skipped}` : ""}.`);
-    setTimeout(() => setImportMsg(""), 4000);
+    setImportMsg(`✓ Imported ${feeds.length} feeds${skipped ? `, skipped ${skipped}` : ""}. Redirecting…`);
+    setTimeout(() => router.push("/"), 1500);
   }
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
