@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getFeeds, getSettings } from "@/lib/store";
+import { getFeeds, getSettings, migrateFromLocalStorage } from "@/lib/store";
 import {
   deriveSettings,
   strict24hTotal,
@@ -57,6 +57,8 @@ export default function Dashboard() {
   const [showExplainer, setShowExplainer] = useState(false);
 
   const load = useCallback(async () => {
+    // One-time migration of any existing localStorage data to the server
+    await migrateFromLocalStorage();
     const [f, s] = await Promise.all([getFeeds(), getSettings()]);
     setFeeds(f);
     setSettings(s);

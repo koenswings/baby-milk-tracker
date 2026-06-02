@@ -2,13 +2,13 @@
 
 import { Feed, Settings } from "@/types";
 
-// crypto.randomUUID() requires a secure context (HTTPS/localhost).
-// This fallback works over plain HTTP too.
+const MIGRATED_KEY = "bmt_migrated_v2";
+
+// RFC4122 v4 UUID — works on plain HTTP (no secure context needed)
 export function generateId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     try { return crypto.randomUUID(); } catch {}
   }
-  // Fallback: RFC4122 v4 UUID via Math.random
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === "x" ? r : (r & 0x3) | 0x8;
@@ -16,34 +16,20 @@ export function generateId(): string {
   });
 }
 
-const DEFAULT_SETTINGS: Settings = {
-  weightKg: 6.27,
-  mlPerKgPerDay: 150,
-  standardBottleVolume: 90,
-};
-
-const FEEDS_KEY = "bmt_feeds";
-const SETTINGS_KEY = "bmt_settings";
-
-// Simple localStorage wrapper (SSR-safe)
-function isClient() {
-  return typeof window !== "undefined";
-}
+// ─── Server API ────────────────────────────────────────────────────────────
 
 export async function getFeeds(): Promise<Feed[]> {
-  if (!isClient()) return [];
-  const raw = localStorage.getItem(FEEDS_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as Feed[];
-  } catch {
-    return [];
-  }
+  const res = await fetch("/api/feeds", { cache: "no-store" });
+  if (!res.ok) return [];
+  return res.json();
 }
 
 export async function saveFeeds(feeds: Feed[]): Promise<void> {
-  if (!isClient()) return;
-  localStorage.setItem(FEEDS_KEY, JSON.stringify(feeds));
+  await fetch("/api/feeds", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(feeds),
+  });
 }
 
 export async function addFeed(feed: Feed): Promise<Feed[]> {
@@ -68,20 +54,67 @@ export async function deleteFeed(id: string): Promise<Feed[]> {
 }
 
 export async function getSettings(): Promise<Settings> {
-  if (!isClient()) return DEFAULT_SETTINGS;
-  const raw = localStorage.getItem(SETTINGS_KEY);
-  if (!raw) return DEFAULT_SETTINGS;
-  try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
+  const res = await fetch("/api/settings", { cache: "no-store" });
+  if (!res.ok) return { weightKg: 6.27, mlPerKgPerDay: 150, standardBottleVolume: 90 };
+  return res.json();
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
-  if (!isClient()) return;
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
 }
+
+// ─── One-time localStorage → server migration ──────────────────────────────
+
+export async function migrateFromLocalStorage(): Promise<{ feeds: number } | null> {
+  if (typeof window === "undefined") return null;
+  if (localStorage.getItem(MIGRATED_KEY)) return null;
+
+  const rawFeeds = localStorage.getItem("bmt_feeds");
+  const rawSettings = localStorage.getItem("bmt_settings");
+
+  if (!rawFeeds && !rawSettings) {
+    // Nothing to migrate, just mark as done
+    localStorage.setItem(MIGRATED_KEY, "1");
+    return null;
+  }
+
+  let migratedFeeds = 0;
+
+  try {
+    if (rawFeeds) {
+      const feeds = JSON.parse(rawFeeds) as Feed[];
+      if (feeds.length > 0) {
+        // Merge with any existing server feeds (avoid duplicates by id)
+        const serverFeeds = await getFeeds();
+        const serverIds = new Set(serverFeeds.map((f) => f.id));
+        const newFeeds = feeds.filter((f) => !serverIds.has(f.id));
+        await saveFeeds([...serverFeeds, ...newFeeds]);
+        migratedFeeds = newFeeds.length;
+      }
+    }
+
+    if (rawSettings) {
+      const settings = JSON.parse(rawSettings) as Settings;
+      await saveSettings(settings);
+    }
+
+    // Clear localStorage after successful migration
+    localStorage.removeItem("bmt_feeds");
+    localStorage.removeItem("bmt_settings");
+    localStorage.setItem(MIGRATED_KEY, "1");
+
+    return { feeds: migratedFeeds };
+  } catch (e) {
+    console.error("Migration failed:", e);
+    return null;
+  }
+}
+
+// ─── CSV export (client-side) ──────────────────────────────────────────────
 
 export function exportCsv(feeds: Feed[]): void {
   const sorted = [...feeds].sort((a, b) => a.timestamp - b.timestamp);
