@@ -105,7 +105,11 @@ export default function AnalyticsPage() {
         </div>
         <div className="bg-slate-800 rounded-xl p-4 relative">
           <div className="text-xs text-slate-400 mb-1">Consistency (σ)</div>
-          <div className="text-xl font-bold text-slate-100">
+          <div className={`text-xl font-bold ${
+            consistency === null ? "text-slate-100" :
+            consistency < 0.5 ? "text-green-400" :
+            consistency < 1.5 ? "text-yellow-400" : "text-red-400"
+          }`}>
             {consistency !== null ? `${consistency.toFixed(2)}h` : "—"}
           </div>
           <button
