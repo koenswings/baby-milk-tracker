@@ -10,6 +10,7 @@ import {
 } from "@/lib/calculations";
 import { Feed, Settings, DerivedSettings } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
+import SmoothedExplainer from "@/components/SmoothedExplainer";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
 
@@ -53,6 +54,7 @@ export default function Dashboard() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [derived, setDerived] = useState<DerivedSettings | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [showExplainer, setShowExplainer] = useState(false);
 
   const load = useCallback(async () => {
     const [f, s] = await Promise.all([getFeeds(), getSettings()]);
@@ -132,12 +134,30 @@ export default function Dashboard() {
           value={`${Math.round(strict24h)} ml`}
           percentage={strict24hPct}
         />
-        <StatusBadge
-          label="Smoothed"
-          value={`${smoothedBottles.toFixed(1)} bottles`}
-          percentage={smoothedPct}
-        />
+        <div className="relative">
+          <StatusBadge
+            label="Smoothed"
+            value={`${smoothedBottles.toFixed(1)} bottles`}
+            percentage={smoothedPct}
+          />
+          <button
+            onClick={() => setShowExplainer(true)}
+            className="absolute top-2 right-2 w-5 h-5 rounded-full bg-slate-600 hover:bg-slate-500 text-slate-300 text-xs font-bold flex items-center justify-center leading-none"
+            aria-label="How is this calculated?"
+          >
+            ?
+          </button>
+        </div>
       </div>
+
+      {showExplainer && derived && (
+        <SmoothedExplainer
+          onClose={() => setShowExplainer(false)}
+          hourlyRate={derived.hourlyRate}
+          standardBottleVolume={settings.standardBottleVolume}
+          dailyTargetMl={derived.dailyTargetMl}
+        />
+      )}
 
       {/* Next feed */}
       <div className="bg-slate-800 rounded-xl p-4 mb-4">
