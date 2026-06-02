@@ -151,6 +151,22 @@ export default function SettingsPage() {
         {saved ? "✓ Saved!" : "Save Settings"}
       </button>
 
+      {/* Danger zone */}
+      <div className="bg-slate-800 border border-red-900/50 rounded-xl p-4 mb-4">
+        <h2 className="text-base font-semibold text-red-400 mb-1">⚠️ Clear All Feeds</h2>
+        <p className="text-xs text-slate-400 mb-3">Permanently deletes all logged feeds. Settings are kept.</p>
+        <button
+          onClick={async () => {
+            if (!confirm("Delete all feeds? This cannot be undone.")) return;
+            await saveFeeds([]);
+            router.push("/");
+          }}
+          className="w-full bg-red-900/40 hover:bg-red-800/60 border border-red-700 text-red-300 font-medium py-3 rounded-lg transition-colors"
+        >
+          Delete All Feeds
+        </button>
+      </div>
+
       {/* CSV Import */}
       <div className="bg-slate-800 rounded-xl p-4">
         <h2 className="text-base font-semibold text-slate-200 mb-1">📥 Import Historic Data</h2>
