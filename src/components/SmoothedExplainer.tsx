@@ -1,14 +1,41 @@
 "use client";
 
+import { Feed } from "@/types";
+import { bottleCredit } from "@/lib/calculations";
+
 interface Props {
   onClose: () => void;
   hourlyRate: number;
   standardBottleVolume: number;
   dailyTargetMl: number;
+  feeds: Feed[];
+  now: number;
 }
 
-export default function SmoothedExplainer({ onClose, hourlyRate, standardBottleVolume, dailyTargetMl }: Props) {
+export default function SmoothedExplainer({ onClose, hourlyRate, standardBottleVolume, dailyTargetMl, feeds, now }: Props) {
   const targetBottles = (dailyTargetMl / standardBottleVolume).toFixed(1);
+
+  // Build per-bottle breakdown, most recent first, only feeds with any credit
+  const sorted = [...feeds].sort((a, b) => b.timestamp - a.timestamp);
+  const withCredit = sorted.map((f) => {
+    const ageHours = (now - f.timestamp) / (1000 * 60 * 60);
+    const credit = bottleCredit(ageHours, f.volume, hourlyRate);
+    return { ...f, ageHours, credit };
+  });
+
+  const totalSmoothedMl = withCredit.reduce((sum, f) => sum + f.credit, 0);
+  const smoothedBottles = totalSmoothedMl / standardBottleVolume;
+  const smoothedPct = (totalSmoothedMl / dailyTargetMl) * 100;
+
+  // Show last 10 relevant feeds (some credit > 0), then summarise the rest
+  const withSomeCredit = withCredit.filter((f) => f.credit > 0.1);
+  const noCredit = withCredit.filter((f) => f.credit <= 0.1);
+
+  function fmtTime(ts: number) {
+    const d = new Date(ts);
+    return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " +
+      d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
 
   return (
     <div
@@ -16,7 +43,7 @@ export default function SmoothedExplainer({ onClose, hourlyRate, standardBottleV
       onClick={onClose}
     >
       <div
-        className="bg-slate-800 rounded-2xl p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto"
+        className="bg-slate-800 rounded-2xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -92,6 +119,67 @@ export default function SmoothedExplainer({ onClose, hourlyRate, standardBottleV
               a better sense of whether the overall intake trend is on track.
             </p>
           </section>
+
+          {/* Live calculation breakdown */}
+          {feeds.length > 0 && (
+            <section>
+              <h3 className="font-semibold text-slate-100 mb-3">Your actual feeds right now</h3>
+
+              {withSomeCredit.length === 0 ? (
+                <p className="text-slate-400">No feeds with remaining credit.</p>
+              ) : (
+                <div className="rounded-lg overflow-hidden border border-slate-700 text-xs">
+                  <div className="grid grid-cols-4 bg-slate-700/60 text-slate-400 px-3 py-2 font-medium">
+                    <span>Feed time</span>
+                    <span className="text-right">Volume</span>
+                    <span className="text-right">Age</span>
+                    <span className="text-right">Credit</span>
+                  </div>
+                  {withSomeCredit.map((f) => (
+                    <div key={f.id} className="grid grid-cols-4 px-3 py-2 border-t border-slate-700/50 text-slate-300">
+                      <span className="text-slate-400">{fmtTime(f.timestamp)}</span>
+                      <span className="text-right">{f.volume} ml</span>
+                      <span className="text-right">
+                        {f.ageHours < 24
+                          ? <span className="text-green-400">{f.ageHours.toFixed(1)}h</span>
+                          : <span className="text-yellow-400">{f.ageHours.toFixed(1)}h</span>
+                        }
+                      </span>
+                      <span className="text-right font-medium">
+                        {f.credit >= f.volume - 0.1
+                          ? <span className="text-green-400">{f.credit.toFixed(0)} ml ✓</span>
+                          : <span className="text-yellow-400">{f.credit.toFixed(0)} ml</span>
+                        }
+                      </span>
+                    </div>
+                  ))}
+                  {noCredit.length > 0 && (
+                    <div className="px-3 py-2 border-t border-slate-700/50 text-slate-500 italic">
+                      + {noCredit.length} older feed{noCredit.length > 1 ? "s" : ""} with no remaining credit (fully faded out)
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Totals */}
+              <div className="mt-3 bg-slate-700/40 rounded-lg p-3 space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-300">
+                  <span>Total credit</span>
+                  <span className="font-semibold">{totalSmoothedMl.toFixed(0)} ml</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>÷ bottle size ({standardBottleVolume} ml)</span>
+                  <span className="font-semibold">= {smoothedBottles.toFixed(2)} bottles</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span>÷ daily target ({dailyTargetMl.toFixed(0)} ml) × 100</span>
+                  <span className={`font-bold ${smoothedPct >= 100 ? "text-green-400" : smoothedPct >= 90 ? "text-yellow-400" : "text-red-400"}`}>
+                    = {smoothedPct.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </section>
+          )}
 
         </div>
 

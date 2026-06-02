@@ -156,6 +156,8 @@ export default function Dashboard() {
           hourlyRate={derived.hourlyRate}
           standardBottleVolume={settings.standardBottleVolume}
           dailyTargetMl={derived.dailyTargetMl}
+          feeds={feeds}
+          now={now}
         />
       )}
 
