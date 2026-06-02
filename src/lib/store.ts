@@ -2,6 +2,20 @@
 
 import { Feed, Settings } from "@/types";
 
+// crypto.randomUUID() requires a secure context (HTTPS/localhost).
+// This fallback works over plain HTTP too.
+export function generateId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    try { return crypto.randomUUID(); } catch {}
+  }
+  // Fallback: RFC4122 v4 UUID via Math.random
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 const DEFAULT_SETTINGS: Settings = {
   weightKg: 6.27,
   mlPerKgPerDay: 150,

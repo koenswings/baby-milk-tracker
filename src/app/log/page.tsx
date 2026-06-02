@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { addFeed, getFeeds } from "@/lib/store";
+import { addFeed, getFeeds, generateId } from "@/lib/store";
 import { Feed } from "@/types";
 import BottomNav from "@/components/BottomNav";
 import { useRouter } from "next/navigation";
@@ -41,7 +41,7 @@ export default function LogPage() {
     setSaving(true);
     const timestamp = new Date(`${date}T${time}`).getTime();
     await addFeed({
-      id: crypto.randomUUID(),
+      id: generateId(),
       timestamp,
       volume: vol,
     });

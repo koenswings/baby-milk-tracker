@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { getSettings, saveSettings, getFeeds, saveFeeds } from "@/lib/store";
+import { getSettings, saveSettings, getFeeds, saveFeeds, generateId } from "@/lib/store";
 import { deriveSettings } from "@/lib/calculations";
 import { Settings, Feed } from "@/types";
 import BottomNav from "@/components/BottomNav";
@@ -52,7 +52,7 @@ export default function SettingsPage() {
       if (isNaN(volume) || volume <= 0) { skipped++; continue; }
       const ts = new Date(`${dateStr}T${timeStr}:00`).getTime();
       if (isNaN(ts)) { skipped++; continue; }
-      feeds.push({ id: crypto.randomUUID(), timestamp: ts, volume });
+      feeds.push({ id: generateId(), timestamp: ts, volume });
     }
 
     if (feeds.length === 0) {
