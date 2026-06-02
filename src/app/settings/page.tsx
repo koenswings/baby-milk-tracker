@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getSettings, saveSettings } from "@/lib/store";
+import { useEffect, useState, useRef } from "react";
+import { getSettings, saveSettings, getFeeds, saveFeeds } from "@/lib/store";
 import { deriveSettings } from "@/lib/calculations";
-import { Settings } from "@/types";
+import { Settings, Feed } from "@/types";
 import BottomNav from "@/components/BottomNav";
 
 export default function SettingsPage() {
@@ -13,6 +13,9 @@ export default function SettingsPage() {
     standardBottleVolume: 90,
   });
   const [saved, setSaved] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importMsg, setImportMsg] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     getSettings().then(setSettings);
@@ -31,6 +34,44 @@ export default function SettingsPage() {
     if (!isNaN(num) && num > 0) {
       setSettings((prev) => ({ ...prev, [field]: num }));
     }
+  }
+
+  async function handleImport() {
+    const lines = importText.trim().split("\n").filter(Boolean);
+    const feeds: Feed[] = [];
+    let skipped = 0;
+
+    for (const line of lines) {
+      // Support: "Date,Time,Volume" or "Date,Time,Volume ml" or just 3 CSV cols
+      const parts = line.split(",").map((s) => s.trim());
+      if (parts.length < 3) { skipped++; continue; }
+      const [dateStr, timeStr, volRaw] = parts;
+      // Skip header row
+      if (dateStr.toLowerCase() === "date") continue;
+      const volume = parseFloat(volRaw.replace(/[^0-9.]/g, ""));
+      if (isNaN(volume) || volume <= 0) { skipped++; continue; }
+      const ts = new Date(`${dateStr}T${timeStr}:00`).getTime();
+      if (isNaN(ts)) { skipped++; continue; }
+      feeds.push({ id: crypto.randomUUID(), timestamp: ts, volume });
+    }
+
+    if (feeds.length === 0) {
+      setImportMsg("No valid rows found.");
+      return;
+    }
+
+    const existing = await getFeeds();
+    await saveFeeds([...existing, ...feeds]);
+    setImportText("");
+    setImportMsg(`✓ Imported ${feeds.length} feeds${skipped ? `, skipped ${skipped}` : ""}.`);
+    setTimeout(() => setImportMsg(""), 4000);
+  }
+
+  async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setImportText(text);
   }
 
   return (
@@ -99,7 +140,7 @@ export default function SettingsPage() {
 
       <button
         onClick={handleSave}
-        className={`w-full font-semibold py-4 rounded-xl text-lg transition-colors ${
+        className={`w-full font-semibold py-4 rounded-xl text-lg transition-colors mb-8 ${
           saved
             ? "bg-green-600 text-white"
             : "bg-blue-600 hover:bg-blue-500 text-white"
@@ -107,6 +148,50 @@ export default function SettingsPage() {
       >
         {saved ? "✓ Saved!" : "Save Settings"}
       </button>
+
+      {/* CSV Import */}
+      <div className="bg-slate-800 rounded-xl p-4">
+        <h2 className="text-base font-semibold text-slate-200 mb-1">📥 Import Historic Data</h2>
+        <p className="text-xs text-slate-400 mb-3">
+          Paste CSV rows (Date, Time, Volume) — e.g. <code className="bg-slate-700 px-1 rounded">2026-05-30,05:12,90</code>
+        </p>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,.txt"
+          onChange={handleFileImport}
+          className="hidden"
+        />
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="text-sm text-blue-400 hover:text-blue-300 mb-3 block"
+        >
+          Or pick a CSV file…
+        </button>
+
+        <textarea
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          rows={6}
+          placeholder={"Date,Time,Volume\n2026-05-30,05:12,90\n2026-05-30,07:40,90 ml"}
+          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 text-sm font-mono focus:outline-none focus:border-blue-500 mb-3 resize-none"
+        />
+
+        {importMsg && (
+          <p className={`text-sm mb-2 ${importMsg.startsWith("✓") ? "text-green-400" : "text-red-400"}`}>
+            {importMsg}
+          </p>
+        )}
+
+        <button
+          onClick={handleImport}
+          disabled={!importText.trim()}
+          className="w-full bg-slate-600 hover:bg-slate-500 disabled:opacity-40 text-slate-100 font-medium py-3 rounded-lg transition-colors"
+        >
+          Import Feeds
+        </button>
+      </div>
 
       <BottomNav />
     </div>
