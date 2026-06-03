@@ -50,3 +50,13 @@ export function writeSettings(settings: Settings): void {
   ensureDir();
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings), "utf8");
 }
+
+export function migrateTargetStamps(currentTargetMl: number): void {
+  const feeds = readFeeds();
+  const needsMigration = feeds.some((f) => f.targetMlPerDay === undefined);
+  if (!needsMigration) return;
+  const migrated = feeds.map((f) =>
+    f.targetMlPerDay !== undefined ? f : { ...f, targetMlPerDay: currentTargetMl }
+  );
+  writeFeeds(migrated);
+}

@@ -13,6 +13,7 @@ import { Feed, Settings, DerivedSettings } from "@/types";
 import {
   BarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   Tooltip,
@@ -47,10 +48,14 @@ export default function AnalyticsPage() {
     return <div className="flex items-center justify-center h-screen"><div className="text-slate-400">Loading…</div></div>;
   }
 
-  const chartData = dailyTotals(feeds, days).map((d) => ({
-    ...d,
-    date: d.date.slice(5), // MM-DD
-  }));
+  const chartData = dailyTotals(feeds, days, derived.dailyTargetMl).map((d) => {
+    const pct = d.targetMl > 0 ? (d.totalMl / d.targetMl) * 100 : 0;
+    return {
+      ...d,
+      date: d.date.slice(5), // MM-DD
+      pct,
+    };
+  });
 
   const avgInterval = avgIntervalHours(feeds);
   const consistency = consistencyScore(feeds);
@@ -91,12 +96,33 @@ export default function AnalyticsPage() {
               contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
               labelStyle={{ color: "#cbd5e1" }}
               itemStyle={{ color: "#93c5fd" }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(value: any, _name: any, props: any) => {
+                const target: number | undefined = props?.payload?.targetMl;
+                const pct: number | undefined = props?.payload?.pct;
+                const ml = typeof value === 'number' ? Math.round(value) : value;
+                return [
+                  `${ml} ml${target ? ` (target: ${Math.round(target)} ml, ${pct !== undefined ? Math.round(pct) : 0}%)` : ""}`,
+                  "Total"
+                ];
+              }}
             />
             <ReferenceLine y={derived.dailyTargetMl} stroke="#4ade80" strokeDasharray="4 4" />
-            <Bar dataKey="totalMl" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="totalMl" radius={[4, 4, 0, 0]}>
+              {chartData.map((entry, index) => {
+                let color = "#3b82f6";
+                if (entry.totalMl > 0) {
+                  if (entry.pct > 110) color = "#f87171";
+                  else if (entry.pct >= 80) color = "#4ade80";
+                  else if (entry.pct >= 70) color = "#facc15";
+                  else color = "#f87171";
+                }
+                return <Cell key={`cell-${index}`} fill={color} />;
+              })}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
-        <p className="text-xs text-slate-500 mt-1">Green dashed = daily target ({Math.round(derived.dailyTargetMl)} ml)</p>
+        <p className="text-xs text-slate-500 mt-1">Green dashed = current target ({Math.round(derived.dailyTargetMl)} ml). Bar color reflects target at time of feed. 🟢 on track (80–110%) 🟡 slightly off (&gt;110% or 70–79%) 🔴 significantly off</p>
       </div>
 
       {/* Stats grid */}

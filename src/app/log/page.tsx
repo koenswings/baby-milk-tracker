@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { addFeed, getFeeds, generateId } from "@/lib/store";
-import { Feed } from "@/types";
+import { addFeed, getFeeds, generateId, getSettings } from "@/lib/store";
+import { Feed, Settings } from "@/types";
 import BottomNav from "@/components/BottomNav";
 import { useRouter } from "next/navigation";
 
@@ -25,11 +25,13 @@ export default function LogPage() {
   const [volume, setVolume] = useState<string>("90");
   const [saving, setSaving] = useState(false);
   const [recentFeeds, setRecentFeeds] = useState<Feed[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
 
   useEffect(() => {
-    getFeeds().then((feeds) => {
+    Promise.all([getFeeds(), getSettings()]).then(([feeds, s]) => {
       const sorted = [...feeds].sort((a, b) => b.timestamp - a.timestamp);
       setRecentFeeds(sorted.slice(0, 3));
+      setSettings(s);
     });
   }, []);
 
@@ -40,10 +42,12 @@ export default function LogPage() {
 
     setSaving(true);
     const timestamp = new Date(`${date}T${time}`).getTime();
+    const targetMlPerDay = settings ? Math.round(settings.weightKg * settings.mlPerKgPerDay) : undefined;
     await addFeed({
       id: generateId(),
       timestamp,
       volume: vol,
+      ...(targetMlPerDay !== undefined ? { targetMlPerDay } : {}),
     });
     setSaving(false);
     router.push("/");
