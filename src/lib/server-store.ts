@@ -3,7 +3,9 @@ import path from "path";
 import { Feed, Settings } from "@/types";
 
 // Data stored on the Pi filesystem, persists across restarts
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
+// Default to a directory outside the Next.js project root to prevent
+// Turbopack from watching data files and triggering hot reloads on every write.
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "../../data");
 const FEEDS_FILE = path.join(DATA_DIR, "feeds.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 

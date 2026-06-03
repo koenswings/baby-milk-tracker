@@ -97,13 +97,38 @@ export default function SmoothedExplainer({ onClose, hourlyRate, standardBottleV
           <section>
             <h3 className="font-semibold text-slate-100 mb-1">Step 3 — the percentage</h3>
             <p>
-              Your baby's daily target is <strong>{dailyTargetMl.toFixed(0)} ml</strong> ({targetBottles} bottles).
+              Your baby&apos;s daily target is <strong>{dailyTargetMl.toFixed(0)} ml</strong> ({targetBottles} bottles).
               We divide the smoothed total by that target and multiply by 100 to get a percentage.
             </p>
             <p className="mt-2">
-              <strong className="text-green-400">100% or more</strong> — your baby is well fed for the current pace. 🟢<br />
-              <strong className="text-yellow-400">90–99%</strong> — slightly behind, worth keeping an eye on. 🟡<br />
-              <strong className="text-red-400">Below 90%</strong> — noticeably behind the target. 🔴
+              The goal is to stay <strong>close to 100%</strong> — not just above it. Both underfeeding and
+              overfeeding carry risks, so the tracker warns in both directions:
+            </p>
+            <div className="mt-2 space-y-1 text-xs">
+              <div className="flex gap-2"><span className="text-red-400 font-semibold w-20">&gt; 110%</span><span>⚠️ Significantly overfed — reduce at next feed 🔴</span></div>
+              <div className="flex gap-2"><span className="text-yellow-400 font-semibold w-20">&gt; 105%</span><span>Slightly overfed — no action needed, just watch 🟡</span></div>
+              <div className="flex gap-2"><span className="text-green-400 font-semibold w-20">80–105%</span><span>Good zone — on track 🟢</span></div>
+              <div className="flex gap-2"><span className="text-yellow-400 font-semibold w-20">70–79%</span><span>Slightly behind — offer a feed soon 🟡</span></div>
+              <div className="flex gap-2"><span className="text-red-400 font-semibold w-20">&lt; 70%</span><span>⚠️ Significantly behind — feed now 🔴</span></div>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="font-semibold text-slate-100 mb-1">Why does credit decay after 24 hours?</h3>
+            <p>
+              The credit decay is based on <strong>energy balance</strong>. Your baby burns through energy
+              continuously at roughly <strong>{hourlyRate.toFixed(1)} ml-equivalent per hour</strong> —
+              your daily target spread evenly across 24 hours.
+            </p>
+            <p className="mt-2">
+              A bottle given 30 hours ago contributed its energy then, but in the 6 hours beyond
+              the 24h window your baby has since burned through {(hourlyRate * 6).toFixed(0)} ml-worth
+              of energy. Subtracting that gives a better model of how much of that bottle&apos;s energy
+              is still &quot;in effect&quot; — available to sustain the baby right now.
+            </p>
+            <p className="mt-2">
+              This is why the Smoothed number is more useful than a strict 24h cutoff: it tracks the
+              <em> running energy balance</em>, not just a fixed window.
             </p>
           </section>
 
