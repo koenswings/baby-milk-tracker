@@ -5,9 +5,22 @@ import "./globals.css";
 const geist = Geist({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Baby Milk Tracker",
-  description: "Track your baby's milk intake",
+  title: "MilkWise — Bottle Feeding Tracker",
+  description: "Precision bottle-feeding tracker for formula and expressed milk. Know your baby is feeding enough — in real time.",
   manifest: "/manifest.json",
+  openGraph: {
+    title: "MilkWise — Bottle Feeding Tracker",
+    description: "Precision bottle-feeding tracker for formula and expressed milk. Know your baby is feeding enough — in real time.",
+    url: "https://idea.tail2d60.ts.net",
+    siteName: "MilkWise",
+    type: "website",
+    images: [{
+      url: "https://idea.tail2d60.ts.net/og-image.png",
+      width: 1200,
+      height: 630,
+      alt: "MilkWise — Bottle Feeding Tracker",
+    }],
+  },
 };
 
 export const viewport: Viewport = {

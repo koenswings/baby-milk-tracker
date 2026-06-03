@@ -15,6 +15,6 @@ if (!fs.existsSync(staticDst)) {
 }
 
 process.env.DATA_DIR = '/home/node/workspace/agents/agent-app-dev/data';
-process.env.PORT = '3333';
+process.env.PORT = '3334'; // Internal port — Caddy proxies from 3333/80/443
 process.env.HOSTNAME = '0.0.0.0';
 require('./.next/standalone/server.js');
