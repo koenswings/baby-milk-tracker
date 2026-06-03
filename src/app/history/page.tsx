@@ -6,12 +6,19 @@ import { feedsWithCredit } from "@/lib/calculations";
 import { FeedWithCredit, Settings } from "@/types";
 import BottomNav from "@/components/BottomNav";
 
+function toDatetimeLocal(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function HistoryPage() {
   const [feeds, setFeeds] = useState<FeedWithCredit[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [search, setSearch] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
   const [editVolume, setEditVolume] = useState("");
+  const [editDatetime, setEditDatetime] = useState("");
 
   async function load() {
     const [f, s] = await Promise.all([getFeeds(), getSettings()]);
@@ -30,10 +37,18 @@ export default function HistoryPage() {
     await load();
   }
 
+  function startEdit(f: FeedWithCredit) {
+    setEditId(f.id);
+    setEditVolume(String(f.volume));
+    setEditDatetime(toDatetimeLocal(f.timestamp));
+  }
+
   async function handleEditSave(id: string) {
     const vol = parseFloat(editVolume);
     if (isNaN(vol) || vol <= 0) return;
-    await updateFeed(id, { volume: vol });
+    const ts = new Date(editDatetime).getTime();
+    if (isNaN(ts)) return;
+    await updateFeed(id, { volume: vol, timestamp: ts });
     setEditId(null);
     await load();
   }
@@ -75,28 +90,44 @@ export default function HistoryPage() {
                         {d.toLocaleDateString([], { month: "short", day: "numeric" })} {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
+
                     {isEditing ? (
-                      <div className="flex gap-2 mt-2">
-                        <input
-                          type="number"
-                          value={editVolume}
-                          onChange={(e) => setEditVolume(e.target.value)}
-                          className="w-24 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm"
-                          autoFocus
-                        />
-                        <span className="text-slate-400 text-sm self-center">ml</span>
-                        <button
-                          onClick={() => handleEditSave(f.id)}
-                          className="text-green-400 text-sm font-medium px-2"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setEditId(null)}
-                          className="text-slate-400 text-sm px-2"
-                        >
-                          Cancel
-                        </button>
+                      <div className="mt-2 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-slate-400 w-12">Volume</label>
+                          <input
+                            type="number"
+                            value={editVolume}
+                            onChange={(e) => setEditVolume(e.target.value)}
+                            className="w-24 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm"
+                            step="any"
+                            autoFocus
+                          />
+                          <span className="text-slate-400 text-sm">ml</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-slate-400 w-12">Time</label>
+                          <input
+                            type="datetime-local"
+                            value={editDatetime}
+                            onChange={(e) => setEditDatetime(e.target.value)}
+                            className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm"
+                          />
+                        </div>
+                        <div className="flex gap-2 mt-1">
+                          <button
+                            onClick={() => handleEditSave(f.id)}
+                            className="text-green-400 text-sm font-medium px-3 py-1 border border-green-700 rounded"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setEditId(null)}
+                            className="text-slate-400 text-sm px-3 py-1"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div className="flex gap-4 mt-1 text-sm text-slate-400">
@@ -110,7 +141,7 @@ export default function HistoryPage() {
                   {!isEditing && (
                     <div className="flex gap-2 shrink-0">
                       <button
-                        onClick={() => { setEditId(f.id); setEditVolume(String(f.volume)); }}
+                        onClick={() => startEdit(f)}
                         className="text-slate-400 hover:text-slate-200 text-sm px-2 py-1"
                       >
                         Edit
