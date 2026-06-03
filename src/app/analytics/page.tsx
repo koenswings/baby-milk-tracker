@@ -28,15 +28,20 @@ export default function AnalyticsPage() {
   const [days, setDays] = useState(7);
   const [showConsistencyInfo, setShowConsistencyInfo] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      const [f, s] = await Promise.all([getFeeds(), getSettings()]);
-      setFeeds(f);
-      setSettings(s);
-      setDerived(deriveSettings(s));
-    }
-    load();
+  const load = useCallback(async () => {
+    const [f, s] = await Promise.all([getFeeds(), getSettings()]);
+    setFeeds(f);
+    setSettings(s);
+    setDerived(deriveSettings(s));
   }, []);
+
+  useEffect(() => {
+    load();
+    // Reload when navigating back from Settings (focus event)
+    const onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [load]);
 
   if (!settings || !derived) {
     return <div className="flex items-center justify-center h-screen"><div className="text-slate-400">Loading…</div></div>;
