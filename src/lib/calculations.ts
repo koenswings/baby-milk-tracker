@@ -130,12 +130,24 @@ export function periodTotal(feeds: Feed[], days: number, now: number = Date.now(
     .reduce((sum, f) => sum + f.volume, 0);
 }
 
-// Status color accounts for both underfeeding and overfeeding.
-// Good zone: 80–105%. Overfed: >105% yellow, >110% red. Underfed: <80% red, 80–90% yellow.
-export function statusColor(percentage: number): string {
-  if (percentage > 110) return "red";    // significantly overfed
-  if (percentage > 105) return "yellow"; // slightly overfed
-  if (percentage >= 80) return "green";  // good zone (includes slightly above target)
-  if (percentage >= 70) return "yellow"; // slightly underfed
-  return "red";                          // significantly underfed
+export function statusColor(
+  pct: number,
+  yellowThresholdPct = 5,
+  redThresholdPct = 10
+): string {
+  const diff = Math.abs(pct - 100);
+  if (diff <= yellowThresholdPct) return 'green';
+  if (diff <= redThresholdPct) return 'yellow';
+  return 'red';
+}
+
+export function statusHexColor(
+  pct: number,
+  yellowThresholdPct = 5,
+  redThresholdPct = 10
+): string {
+  const diff = Math.abs(pct - 100);
+  if (diff <= yellowThresholdPct) return '#4ade80'; // green
+  if (diff <= redThresholdPct) return '#facc15';    // yellow
+  return '#f87171';                                  // red
 }

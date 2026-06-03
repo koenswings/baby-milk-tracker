@@ -9,6 +9,8 @@ export interface Settings {
   weightKg: number;
   mlPerKgPerDay: number;
   standardBottleVolume: number;
+  yellowThresholdPct: number; // default 5 — within this % of target = on track
+  redThresholdPct: number;    // default 10 — beyond this % of target = seriously off
 }
 
 export interface DerivedSettings {

@@ -21,6 +21,15 @@ import {
 } from "recharts";
 import BottomNav from "@/components/BottomNav";
 
+function barColorHex(pct: number, y: number, r: number, isToday?: boolean, totalMl?: number): string {
+  if (isToday) return '#64748b'; // grey — day in progress
+  if (!totalMl || totalMl === 0) return '#334155'; // empty
+  const diff = Math.abs(pct - 100);
+  if (diff <= y) return '#4ade80';
+  if (diff <= r) return '#facc15';
+  return '#f87171';
+}
+
 export default function AnalyticsPage() {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -109,21 +118,19 @@ export default function AnalyticsPage() {
             />
             <Bar dataKey="totalMl" radius={[4, 4, 0, 0]}>
               {chartData.map((entry, index) => {
-                let color = "#3b82f6";
-                if ((entry as any).isToday) {
-                  color = "#64748b"; // grey — day in progress
-                } else if (entry.totalMl > 0) {
-                  if (entry.pct > 110) color = "#f87171";
-                  else if (entry.pct >= 80) color = "#4ade80";
-                  else if (entry.pct >= 70) color = "#facc15";
-                  else color = "#f87171";
-                }
+                const color = barColorHex(
+                  entry.pct,
+                  settings.yellowThresholdPct ?? 5,
+                  settings.redThresholdPct ?? 10,
+                  (entry as any).isToday,
+                  entry.totalMl
+                );
                 return <Cell key={`cell-${index}`} fill={color} />;
               })}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-        <p className="text-xs text-slate-500 mt-1">Green dashed = current target ({Math.round(derived.dailyTargetMl)} ml). Bar color reflects target at time of feed. 🟢 on track (80–110%) 🟡 slightly off (&gt;110% or 70–79%) 🔴 significantly off</p>
+        <p className="text-xs text-slate-500 mt-1">Green dashed = current target ({Math.round(derived.dailyTargetMl)} ml). Bar color reflects target at time of feed. 🟢 on track (±{settings.yellowThresholdPct}%) 🟡 slightly off (±{settings.redThresholdPct}%) 🔴 significantly off</p>
       </div>
 
       {/* Stats grid */}

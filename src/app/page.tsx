@@ -135,12 +135,16 @@ export default function Dashboard() {
           label="Strict 24h"
           value={`${Math.round(strict24h)} ml`}
           percentage={strict24hPct}
+          yellowThresholdPct={settings.yellowThresholdPct}
+          redThresholdPct={settings.redThresholdPct}
         />
         <div className="relative">
           <StatusBadge
             label="Smoothed"
             value={`${smoothedBottles.toFixed(1)} bottles`}
             percentage={smoothedPct}
+            yellowThresholdPct={settings.yellowThresholdPct}
+            redThresholdPct={settings.redThresholdPct}
           />
           <button
             onClick={() => setShowExplainer(true)}

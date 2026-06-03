@@ -12,6 +12,8 @@ export default function SettingsPage() {
     weightKg: 6.27,
     mlPerKgPerDay: 150,
     standardBottleVolume: 90,
+    yellowThresholdPct: 5,
+    redThresholdPct: 10,
   });
   const [saved, setSaved] = useState(false);
   const [importText, setImportText] = useState("");
@@ -118,6 +120,35 @@ export default function SettingsPage() {
             max="300"
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
           />
+        </div>
+
+        <div className="bg-slate-800 rounded-xl p-4">
+          <label className="block text-sm text-slate-400 mb-1">On-track zone (±%)</label>
+          <input
+            type="number"
+            value={settings.yellowThresholdPct}
+            onChange={(e) => update("yellowThresholdPct", e.target.value)}
+            step="1"
+            min="1"
+            max="49"
+            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
+          />
+        </div>
+
+        <div className="bg-slate-800 rounded-xl p-4">
+          <label className="block text-sm text-slate-400 mb-1">Seriously off threshold (±%)</label>
+          <input
+            type="number"
+            value={settings.redThresholdPct}
+            onChange={(e) => update("redThresholdPct", e.target.value)}
+            step="1"
+            min="1"
+            max="49"
+            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
+          />
+          <p className="text-xs text-slate-500 mt-2">
+            Within ±{settings.yellowThresholdPct}% of target = on track. Beyond ±{settings.redThresholdPct}% = seriously off.
+          </p>
         </div>
       </div>
 
