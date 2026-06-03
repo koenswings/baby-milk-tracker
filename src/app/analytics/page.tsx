@@ -93,9 +93,10 @@ export default function AnalyticsPage() {
             <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} />
             <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} />
             <Tooltip
-              contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
+              contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8 }}
               labelStyle={{ color: "#cbd5e1" }}
               itemStyle={{ color: "#93c5fd" }}
+              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               formatter={(value: any, _name: any, props: any) => {
                 const target: number | undefined = props?.payload?.targetMl;
