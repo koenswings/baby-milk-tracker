@@ -111,7 +111,9 @@ export default function AnalyticsPage() {
             <Bar dataKey="totalMl" radius={[4, 4, 0, 0]}>
               {chartData.map((entry, index) => {
                 let color = "#3b82f6";
-                if (entry.totalMl > 0) {
+                if ((entry as any).isToday) {
+                  color = "#64748b"; // grey — day in progress
+                } else if (entry.totalMl > 0) {
                   if (entry.pct > 110) color = "#f87171";
                   else if (entry.pct >= 80) color = "#4ade80";
                   else if (entry.pct >= 70) color = "#facc15";
