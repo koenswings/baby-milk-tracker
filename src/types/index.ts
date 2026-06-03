@@ -11,6 +11,7 @@ export interface Settings {
   standardBottleVolume: number;
   yellowThresholdPct: number; // default 5 — within this % of target = on track
   redThresholdPct: number;    // default 10 — beyond this % of target = seriously off
+  timeFormat: '24h' | '12h'; // default '24h'
 }
 
 export interface DerivedSettings {

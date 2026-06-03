@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getFeeds, deleteFeed, updateFeed, getSettings } from "@/lib/store";
+import { formatDateTime } from "@/lib/formatTime";
 import { feedsWithCredit } from "@/lib/calculations";
 import { FeedWithCredit, Settings } from "@/types";
 import BottomNav from "@/components/BottomNav";
@@ -87,7 +88,7 @@ export default function HistoryPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-500">#{filtered.length - i}</span>
                       <span className="text-sm font-medium text-slate-200">
-                        {d.toLocaleDateString([], { month: "short", day: "numeric" })} {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {formatDateTime(f.timestamp, settings?.timeFormat)}
                       </span>
                     </div>
 

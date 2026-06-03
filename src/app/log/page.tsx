@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { addFeed, getFeeds, generateId, getSettings } from "@/lib/store";
+import { formatDateTime } from "@/lib/formatTime";
 import { Feed, Settings } from "@/types";
 import BottomNav from "@/components/BottomNav";
 import { useRouter } from "next/navigation";
@@ -133,7 +134,7 @@ export default function LogPage() {
               return (
                 <div key={f.id} className="bg-slate-800 rounded-lg px-4 py-3 flex justify-between items-center">
                   <span className="text-slate-300">
-                    {d.toLocaleDateString([], { month: "short", day: "numeric" })} {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {formatDateTime(f.timestamp, settings?.timeFormat)}
                   </span>
                   <span className="font-semibold text-blue-300">{f.volume} ml</span>
                 </div>

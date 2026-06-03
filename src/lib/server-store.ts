@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS: Settings = {
   standardBottleVolume: 90,
   yellowThresholdPct: 5,
   redThresholdPct: 10,
+  timeFormat: '24h' as const,
 };
 
 function ensureDir() {

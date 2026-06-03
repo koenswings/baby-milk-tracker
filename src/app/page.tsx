@@ -13,6 +13,7 @@ import StatusBadge from "@/components/StatusBadge";
 import SmoothedExplainer from "@/components/SmoothedExplainer";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
+import { formatDateTime } from "@/lib/formatTime";
 
 function isToday(ms: number): boolean {
   const d = new Date(ms);
@@ -29,14 +30,6 @@ function isTomorrow(ms: number): boolean {
   return d.getDate() === t.getDate() &&
     d.getMonth() === t.getMonth() &&
     d.getFullYear() === t.getFullYear();
-}
-
-function formatDateTime(ms: number): string {
-  const d = new Date(ms);
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (isToday(ms)) return time;
-  if (isTomorrow(ms)) return `tomorrow ${time}`;
-  return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + time;
 }
 
 function formatRelative(ms: number, now: number): string {
@@ -173,7 +166,7 @@ export default function Dashboard() {
         {nextFeed ? (
           <>
             <div className="flex items-baseline gap-2">
-              <span className="text-xl font-semibold text-blue-300">{formatDateTime(nextFeed)}</span>
+              <span className="text-xl font-semibold text-blue-300">{formatDateTime(nextFeed, settings.timeFormat)}</span>
             </div>
             <div className="text-sm text-slate-400 mt-0.5">{formatRelative(nextFeed, now)}</div>
           </>
@@ -190,7 +183,7 @@ export default function Dashboard() {
         <div className="bg-slate-800 rounded-xl p-4 mb-4">
           <div className="text-sm text-slate-400 mb-1">Last feed</div>
           <div className="flex items-baseline gap-2">
-            <span className="text-xl font-semibold text-slate-200">{formatDateTime(lastFeed.timestamp)}</span>
+            <span className="text-xl font-semibold text-slate-200">{formatDateTime(lastFeed.timestamp, settings.timeFormat)}</span>
             <span className="text-slate-400 text-sm">{lastFeed.volume} ml</span>
           </div>
           <div className="text-xs text-slate-500 mt-1">

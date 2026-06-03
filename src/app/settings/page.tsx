@@ -14,6 +14,7 @@ export default function SettingsPage() {
     standardBottleVolume: 90,
     yellowThresholdPct: 5,
     redThresholdPct: 10,
+    timeFormat: '24h',
   });
   const [saved, setSaved] = useState(false);
   const [importText, setImportText] = useState("");
@@ -149,6 +150,26 @@ export default function SettingsPage() {
           <p className="text-xs text-slate-500 mt-2">
             Within ±{settings.yellowThresholdPct}% of target = on track. Beyond ±{settings.redThresholdPct}% = seriously off.
           </p>
+        </div>
+
+        <div className="bg-slate-800 rounded-xl p-4">
+          <label className="block text-sm text-slate-400 mb-2">Time format</label>
+          <div className="flex gap-2">
+            {(['24h', '12h'] as const).map((fmt) => (
+              <button
+                key={fmt}
+                type="button"
+                onClick={() => setSettings((prev) => ({ ...prev, timeFormat: fmt }))}
+                className={`flex-1 py-3 rounded-lg font-semibold transition-colors ${
+                  settings.timeFormat === fmt
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                {fmt}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
