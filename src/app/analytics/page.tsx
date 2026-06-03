@@ -17,7 +17,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
 import BottomNav from "@/components/BottomNav";
@@ -108,7 +107,6 @@ export default function AnalyticsPage() {
                 ];
               }}
             />
-            <ReferenceLine y={derived.dailyTargetMl} stroke="#4ade80" strokeDasharray="4 4" />
             <Bar dataKey="totalMl" radius={[4, 4, 0, 0]}>
               {chartData.map((entry, index) => {
                 let color = "#3b82f6";
