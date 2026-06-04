@@ -31,15 +31,24 @@ export default function LogPage() {
   const [recentFeeds, setRecentFeeds] = useState<Feed[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
 
-  // Reset date/time when page gains focus (handles midnight crossover with stale state)
+  // Track whether user has manually edited date/time
+  const [dateEdited, setDateEdited] = useState(false);
+  const [timeEdited, setTimeEdited] = useState(false);
+
+  // Keep date/time current — refresh every 30s and on focus, but only if not manually edited.
+  // This handles midnight crossover even if the tab stays open all night.
   useEffect(() => {
-    const onFocus = () => {
-      setDate(nowDateString());
-      setTime(nowTimeString());
+    const refresh = () => {
+      if (!dateEdited) setDate(nowDateString());
+      if (!timeEdited) setTime(nowTimeString());
     };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, []);
+    const interval = setInterval(refresh, 30000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [dateEdited, timeEdited]);
 
   useEffect(() => {
     Promise.all([getFeeds(), getSettings()]).then(([feeds, s]) => {
@@ -113,7 +122,7 @@ export default function LogPage() {
           <input
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => { setDate(e.target.value); setDateEdited(true); }}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500"
           />
         </div>
@@ -124,7 +133,7 @@ export default function LogPage() {
           <input
             type="time"
             value={time}
-            onChange={(e) => setTime(e.target.value)}
+            onChange={(e) => { setTime(e.target.value); setTimeEdited(true); }}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500"
           />
         </div>
