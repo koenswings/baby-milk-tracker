@@ -91,21 +91,25 @@ export default function Dashboard() {
   }
 
   const strict24h = strict24hTotal(feeds, now);
+
+  const lastFeed = feeds.length > 0
+    ? feeds.reduce((a, b) => (a.timestamp > b.timestamp ? a : b))
+    : null;
+
+  // Smoothed is frozen at the moment of the last feed — it should not tick down
+  // between feeds. Only re-evaluates when a new feed is logged.
+  const smoothedAt = lastFeed ? lastFeed.timestamp : now;
   const { totalMl: smoothedMl, bottles: smoothedBottles } = smoothedEffective(
     feeds,
     derived.hourlyRate,
     settings.standardBottleVolume,
-    now
+    smoothedAt
   );
 
   const strict24hPct = (strict24h / derived.dailyTargetMl) * 100;
   const smoothedPct = (smoothedMl / derived.dailyTargetMl) * 100;
 
   const nextFeed = nextFeedTime(feeds, derived.idealIntervalHours);
-
-  const lastFeed = feeds.length > 0
-    ? feeds.reduce((a, b) => (a.timestamp > b.timestamp ? a : b))
-    : null;
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-24">
@@ -156,7 +160,7 @@ export default function Dashboard() {
           standardBottleVolume={settings.standardBottleVolume}
           dailyTargetMl={derived.dailyTargetMl}
           feeds={feeds}
-          now={now}
+          now={smoothedAt}
         />
       )}
 
