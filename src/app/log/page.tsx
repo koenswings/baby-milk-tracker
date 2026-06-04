@@ -31,6 +31,16 @@ export default function LogPage() {
   const [recentFeeds, setRecentFeeds] = useState<Feed[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
 
+  // Reset date/time when page gains focus (handles midnight crossover with stale state)
+  useEffect(() => {
+    const onFocus = () => {
+      setDate(nowDateString());
+      setTime(nowTimeString());
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
   useEffect(() => {
     Promise.all([getFeeds(), getSettings()]).then(([feeds, s]) => {
       const sorted = [...feeds].sort((a, b) => b.timestamp - a.timestamp);
