@@ -90,15 +90,13 @@ export default function Dashboard() {
     );
   }
 
-  const strict24h = strict24hTotal(feeds, now);
-
   const lastFeed = feeds.length > 0
     ? feeds.reduce((a, b) => (a.timestamp > b.timestamp ? a : b))
     : null;
 
-  // Smoothed is frozen at the moment of the last feed — it should not tick down
-  // between feeds. Only re-evaluates when a new feed is logged.
+  // Both Strict and Smoothed frozen at last-feed time — only change when a new feed is logged
   const smoothedAt = lastFeed ? lastFeed.timestamp : now;
+  const strict24h = strict24hTotal(feeds, smoothedAt);
   const { totalMl: smoothedMl, bottles: smoothedBottles } = smoothedEffective(
     feeds,
     derived.hourlyRate,
