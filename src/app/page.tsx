@@ -124,6 +124,19 @@ export default function Dashboard() {
         ➕ Log Feed
       </Link>
 
+      {/* Daily target */}
+      <div className="bg-slate-800 rounded-xl p-4 mb-4">
+        <div className="text-sm text-slate-400 mb-1">Daily target</div>
+        <div className="flex items-baseline gap-3">
+          <span className="text-xl font-semibold text-slate-100">{Math.round(derived.dailyTargetMl)} ml</span>
+          <span className="text-slate-400 text-sm">&middot;</span>
+          <span className="text-lg font-semibold text-slate-300">{(derived.dailyTargetMl / settings.standardBottleVolume).toFixed(1)} &times; {settings.standardBottleVolume} ml bottles</span>
+        </div>
+        <div className="text-xs text-slate-500 mt-1">
+          {settings.weightKg} kg &times; {settings.mlPerKgPerDay} ml/kg/day
+        </div>
+      </div>
+
       {/* Status cards */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <StatusBadge
@@ -190,19 +203,6 @@ export default function Dashboard() {
           ) : (
             <span className="text-slate-500 text-sm">No feeds yet</span>
           )}
-        </div>
-      </div>
-
-      {/* Daily target */}
-      <div className="bg-slate-800 rounded-xl p-4 mb-4">
-        <div className="text-sm text-slate-400 mb-1">Daily target</div>
-        <div className="flex items-baseline gap-3">
-          <span className="text-xl font-semibold text-slate-100">{Math.round(derived.dailyTargetMl)} ml</span>
-          <span className="text-slate-400 text-sm">·</span>
-          <span className="text-lg font-semibold text-slate-300">{(derived.dailyTargetMl / settings.standardBottleVolume).toFixed(1)} × {settings.standardBottleVolume} ml bottles</span>
-        </div>
-        <div className="text-xs text-slate-500 mt-1">
-          {settings.weightKg} kg × {settings.mlPerKgPerDay} ml/kg/day
         </div>
       </div>
 
