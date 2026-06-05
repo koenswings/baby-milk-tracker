@@ -11,6 +11,7 @@ import {
 import { Feed, Settings, DerivedSettings } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import SmoothedExplainer from "@/components/SmoothedExplainer";
+import Strict24hExplainer from "@/components/Strict24hExplainer";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
 import { formatDateTime } from "@/lib/formatTime";
@@ -48,6 +49,7 @@ export default function Dashboard() {
   const [derived, setDerived] = useState<DerivedSettings | null>(null);
   const [now, setNow] = useState(Date.now());
   const [showExplainer, setShowExplainer] = useState(false);
+  const [showStrictExplainer, setShowStrictExplainer] = useState(false);
 
   const load = useCallback(async () => {
     // One-time migration of any existing localStorage data to the server
@@ -139,16 +141,25 @@ export default function Dashboard() {
 
       {/* Status cards */}
       <div className="grid grid-cols-2 gap-3 mb-6">
-        <StatusBadge
-          label="Strict 24h"
-          value={`${Math.round(strict24h)} ml`}
-          percentage={strict24hPct}
-          yellowThresholdPct={settings.yellowThresholdPct}
-          redThresholdPct={settings.redThresholdPct}
-        />
         <div className="relative">
           <StatusBadge
-            label="Smoothed"
+            label="Strict 24h"
+            value={`${Math.round(strict24h)} ml`}
+            percentage={strict24hPct}
+            yellowThresholdPct={settings.yellowThresholdPct}
+            redThresholdPct={settings.redThresholdPct}
+          />
+          <button
+            onClick={() => setShowStrictExplainer(true)}
+            className="absolute top-2 right-2 w-5 h-5 rounded-full bg-slate-600 hover:bg-slate-500 text-slate-300 text-xs font-bold flex items-center justify-center leading-none"
+            aria-label="How is Strict 24h calculated?"
+          >
+            ?
+          </button>
+        </div>
+        <div className="relative">
+          <StatusBadge
+            label="Smoothed 24h"
             value={`${smoothedBottles.toFixed(1)} bottles`}
             percentage={smoothedPct}
             yellowThresholdPct={settings.yellowThresholdPct}
@@ -157,12 +168,16 @@ export default function Dashboard() {
           <button
             onClick={() => setShowExplainer(true)}
             className="absolute top-2 right-2 w-5 h-5 rounded-full bg-slate-600 hover:bg-slate-500 text-slate-300 text-xs font-bold flex items-center justify-center leading-none"
-            aria-label="How is this calculated?"
+            aria-label="How is Smoothed 24h calculated?"
           >
             ?
           </button>
         </div>
       </div>
+
+      {showStrictExplainer && (
+        <Strict24hExplainer onClose={() => setShowStrictExplainer(false)} />
+      )}
 
       {showExplainer && derived && (
         <SmoothedExplainer
