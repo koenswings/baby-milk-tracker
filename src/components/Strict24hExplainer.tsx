@@ -50,7 +50,7 @@ export default function Strict24hExplainer({ onClose }: Props) {
               throughout the day. A single nap that pushes a feed past the 24-hour mark can make the
               number look alarming.
             </p>
-            <p className="mt-2 text-slate-400 text-xs">
+            <p className="mt-2 text-slate-400">
               That's why this app also shows the{" "}
               <span className="text-slate-300 font-medium">Smoothed 24h</span> value, which gives
               each bottle a gradually decaying credit instead of a hard cutoff.
