@@ -3,35 +3,58 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getFeeds, getSettings } from "@/lib/store";
-import { deriveSettings, smoothedEffective, nextFeedTime, waterToMilk } from "@/lib/calculations";
+import { deriveSettings, smoothedEffective, smoothedAtTime, nextFeedTime, waterToMilk } from "@/lib/calculations";
 import { formatDateTime } from "@/lib/formatTime";
 
 function fmtRel(ms: number, now: number): string {
   const d = ms - now, abs = Math.abs(d);
-  const mins = Math.round(abs / 60000), h = Math.floor(mins/60), m = mins%60;
+  const mins = Math.round(abs / 60000), h = Math.floor(mins / 60), m = mins % 60;
   const str = h > 0 ? `${h}h ${m}m` : `${mins}m`;
   return d > 0 ? `in ${str}` : `${str} ago`;
 }
 
+function fmtTime(ts: number, fmt: '24h' | '12h'): string {
+  const d = new Date(ts);
+  let h = d.getHours(), m = d.getMinutes();
+  if (fmt === '12h') { h = h % 12 || 12; }
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+interface WindowPoint {
+  ts: number;
+  smoothedMl: number;
+  label?: string;
+  isTarget?: boolean;
+  isTstar?: boolean;
+}
+
 export default function NextFeedInfoPage() {
   const [live, setLive] = useState<{
-    surplusMl: number;
-    rawCorrectionMin: number;
-    clampedMin: number;
-    capped: boolean;
-    adjustedTs: number;
-    standardTs: number;
-    standardIntervalMin: number;
-    maxCorrectionMin: number;
-    lastBottleVolume: number;
-    timeFormat: '24h'|'12h';
-    useP3: boolean;
-    targetBeforeMl: number;
+    // Core numbers
     smoothedAtLastFeedMl: number;
+    dailyTargetMl: number;
+    surplusMl: number;
     nextBottleMilkMl: number;
     nextBottleWaterMl: number;
-    p3MaxCorrectionMin: number;
+    targetBeforeMl: number;
+    // Window
+    lastFeedTs: number;
+    standardTs: number;
+    tStarTs: number;
+    windowEndTs: number;
+    capped: boolean;
     p3DeltaMin: number;
+    p3MaxCorrectionMin: number;
+    // Graph points: evenly sampled across the window
+    windowPoints: WindowPoint[];
+    // Result
+    adjustedTs: number;
+    timeFormat: '24h' | '12h';
+    useP3: boolean;
+    // P2 fallback
+    maxCorrectionMin: number;
+    clampedMin: number;
+    rawCorrectionMin: number;
   } | null>(null);
   const [now] = useState(Date.now());
 
@@ -40,52 +63,166 @@ export default function NextFeedInfoPage() {
       const [feeds, settings] = await Promise.all([getFeeds(), getSettings()]);
       if (!feeds.length) return;
       const derived = deriveSettings(settings);
-      const lastFeed = feeds.reduce((a,b) => a.timestamp > b.timestamp ? a : b);
-      const smoothedAt = lastFeed.timestamp;
-      const { totalMl: smoothedTotal } = smoothedEffective(feeds, derived.hourlyRate, settings.standardBottleVolume, smoothedAt);
+      const lastFeed = feeds.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
 
-      const lastMilkMl = waterToMilk(lastFeed.volume);
-      const standardIntervalMs = (lastMilkMl / derived.hourlyRate) * 3_600_000;
-      const standardTs = lastFeed.timestamp + standardIntervalMs;
-      const maxCorrectionMs = standardIntervalMs * (settings.maxCorrectionPct / 100);
+      const { totalMl: smoothedTotal } = smoothedEffective(feeds, derived.hourlyRate, settings.standardBottleVolume, lastFeed.timestamp);
       const surplus = smoothedTotal - derived.dailyTargetMl;
-      const rawCorrectionMs = (surplus / derived.hourlyRate) * 3_600_000;
-      const clampedMs = Math.max(-maxCorrectionMs, Math.min(maxCorrectionMs, rawCorrectionMs));
 
-      const result = nextFeedTime(feeds, derived.hourlyRate, smoothedTotal, derived.dailyTargetMl, settings);
-      const adjustedTs = result?.timestamp ?? standardTs + clampedMs;
-      const capped = result?.capped ?? false;
-
-      // P3-specific
       const nextBottleMilkMl = waterToMilk(settings.nextBottleWaterMl ?? 90);
       const targetBefore = derived.dailyTargetMl - nextBottleMilkMl;
-      const smoothedAtLastFeed = smoothedTotal; // already computed above
-      const p3StandardNext = lastFeed.timestamp + (nextBottleMilkMl / derived.hourlyRate) * 3_600_000;
-      const p3MaxCorrectionMs = (nextBottleMilkMl / derived.hourlyRate) * 3_600_000 * (settings.maxCorrectionPct / 100);
+
+      // P3 window boundaries
+      const p3StandardIntervalMs = (nextBottleMilkMl / derived.hourlyRate) * 3_600_000;
+      const p3StandardTs = lastFeed.timestamp + p3StandardIntervalMs;
+      const p3MaxCorrectionMs = p3StandardIntervalMs * (settings.maxCorrectionPct / 100);
       const p3MaxCorrectionMin = Math.round(p3MaxCorrectionMs / 60_000);
-      const p3DeltaMin = Math.round((adjustedTs - p3StandardNext) / 60_000); // T* minus P3's own standard
+      const windowEndTs = p3StandardTs + p3MaxCorrectionMs;
+
+      // P2 fallback numbers
+      const lastMilkMl = waterToMilk(lastFeed.volume);
+      const p2StandardIntervalMs = (lastMilkMl / derived.hourlyRate) * 3_600_000;
+      const p2StandardTs = lastFeed.timestamp + p2StandardIntervalMs;
+      const p2MaxCorrectionMs = p2StandardIntervalMs * (settings.maxCorrectionPct / 100);
+      const rawCorrectionMs = (surplus / derived.hourlyRate) * 3_600_000;
+      const clampedMs = Math.max(-p2MaxCorrectionMs, Math.min(p2MaxCorrectionMs, rawCorrectionMs));
+
+      const result = nextFeedTime(feeds, derived.hourlyRate, smoothedTotal, derived.dailyTargetMl, settings);
+      const adjustedTs = result?.timestamp ?? p2StandardTs + clampedMs;
+      const capped = result?.capped ?? false;
+      const p3DeltaMin = Math.round((adjustedTs - p3StandardTs) / 60_000);
+
+      // Build graph points: 40 samples from lastFeed to windowEnd
+      const spanMs = windowEndTs - lastFeed.timestamp;
+      const steps = 40;
+      const windowPoints: WindowPoint[] = [];
+      for (let i = 0; i <= steps; i++) {
+        const ts = lastFeed.timestamp + (spanMs * i) / steps;
+        const smoothedMl = smoothedAtTime(feeds, derived.hourlyRate, ts);
+        windowPoints.push({ ts, smoothedMl });
+      }
+      // Label key points
+      windowPoints[0].label = 'Last feed';
+      const standardIdx = Math.round(((p3StandardTs - lastFeed.timestamp) / spanMs) * steps);
+      if (standardIdx >= 0 && standardIdx <= steps) windowPoints[standardIdx].label = 'Standard';
+      const tStarIdx = Math.round(((adjustedTs - lastFeed.timestamp) / spanMs) * steps);
+      if (tStarIdx >= 0 && tStarIdx <= steps) {
+        windowPoints[tStarIdx].isTstar = true;
+        windowPoints[tStarIdx].label = 'T*';
+      }
+      windowPoints[steps].label = 'Window end';
 
       setLive({
+        smoothedAtLastFeedMl: smoothedTotal,
+        dailyTargetMl: derived.dailyTargetMl,
         surplusMl: surplus,
-        rawCorrectionMin: Math.round(rawCorrectionMs / 60_000),
-        clampedMin: Math.round(clampedMs / 60_000),
+        nextBottleMilkMl,
+        nextBottleWaterMl: settings.nextBottleWaterMl ?? 90,
+        targetBeforeMl: targetBefore,
+        lastFeedTs: lastFeed.timestamp,
+        standardTs: p3StandardTs,
+        tStarTs: adjustedTs,
+        windowEndTs,
         capped,
+        p3DeltaMin,
+        p3MaxCorrectionMin,
+        windowPoints,
         adjustedTs,
-        standardTs,
-        standardIntervalMin: Math.round(standardIntervalMs / 60_000),
-        maxCorrectionMin: Math.round(maxCorrectionMs / 60_000),
-        lastBottleVolume: lastFeed.volume,
         timeFormat: settings.timeFormat,
         useP3: settings.useTargetAwarePredictor !== false,
-        targetBeforeMl: targetBefore,
-        smoothedAtLastFeedMl: smoothedAtLastFeed,
-        nextBottleMilkMl: nextBottleMilkMl,
-        nextBottleWaterMl: settings.nextBottleWaterMl ?? 90,
-        p3MaxCorrectionMin: p3MaxCorrectionMin,
-        p3DeltaMin: p3DeltaMin,
+        maxCorrectionMin: Math.round(p2MaxCorrectionMs / 60_000),
+        clampedMin: Math.round(clampedMs / 60_000),
+        rawCorrectionMin: Math.round(rawCorrectionMs / 60_000),
       });
     })();
   }, []);
+
+  // SVG decay graph helpers
+  type LiveData = NonNullable<typeof live>;
+  function renderGraph(lv: LiveData) {
+    const live = lv;
+    const W = 320, H = 120, padL = 48, padR = 12, padT = 12, padB = 28;
+    const gW = W - padL - padR, gH = H - padT - padB;
+
+    const allSmoothed = live.windowPoints.map((p: WindowPoint) => p.smoothedMl);
+    const minY = Math.min(...allSmoothed, live.targetBeforeMl) * 0.97;
+    const maxY = Math.max(...allSmoothed) * 1.03;
+    const rangeY = maxY - minY || 1;
+
+    const spanMs = live.windowEndTs - live.lastFeedTs;
+
+    const tx = (ts: number) => padL + ((ts - live.lastFeedTs) / spanMs) * gW;
+    const ty = (ml: number) => padT + (1 - (ml - minY) / rangeY) * gH;
+
+    // Smoothed decay path
+    const pathD = live.windowPoints.map((p: WindowPoint, i: number) =>
+      `${i === 0 ? 'M' : 'L'}${tx(p.ts).toFixed(1)},${ty(p.smoothedMl).toFixed(1)}`
+    ).join(' ');
+
+    // Target line y
+    const targetY = ty(live.targetBeforeMl);
+    const tStarX = tx(live.tStarTs);
+    const standardX = tx(live.standardTs);
+
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+        {/* Grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map(f => {
+          const y = padT + f * gH;
+          const val = Math.round(maxY - f * rangeY);
+          return (
+            <g key={f}>
+              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#334155" strokeWidth="0.5" />
+              <text x={padL - 4} y={y + 3.5} textAnchor="end" fontSize="8" fill="#64748b">{val}</text>
+            </g>
+          );
+        })}
+
+        {/* Target-before-feed line */}
+        <line x1={padL} y1={targetY} x2={W - padR} y2={targetY} stroke="#f59e0b" strokeWidth="1" strokeDasharray="4 2" />
+        <text x={W - padR + 2} y={targetY + 3.5} fontSize="7" fill="#f59e0b">target</text>
+
+        {/* Standard next time vertical */}
+        <line x1={standardX} y1={padT} x2={standardX} y2={padT + gH} stroke="#475569" strokeWidth="1" strokeDasharray="3 2" />
+        <text x={standardX} y={padT + gH + 10} textAnchor="middle" fontSize="7" fill="#64748b">std</text>
+
+        {/* Window end vertical */}
+        <line x1={W - padR} y1={padT} x2={W - padR} y2={padT + gH} stroke="#334155" strokeWidth="1" />
+
+        {/* T* vertical */}
+        {!live.capped && (
+          <line x1={tStarX} y1={padT} x2={tStarX} y2={padT + gH} stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="3 2" />
+        )}
+
+        {/* Smoothed decay curve */}
+        <path d={pathD} fill="none" stroke="#22d3ee" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* T* dot */}
+        {!live.capped && (() => {
+          const tStarSmoothed = live.windowPoints.reduce((best: WindowPoint, p: WindowPoint) =>
+            Math.abs(p.ts - live.tStarTs) < Math.abs(best.ts - live.tStarTs) ? p : best
+          );
+          return <circle cx={tStarX} cy={ty(tStarSmoothed.smoothedMl)} r="3" fill="#3b82f6" />;
+        })()}
+
+        {/* Capped end dot */}
+        {live.capped && (() => {
+          const lastPt = live.windowPoints[live.windowPoints.length - 1];
+          return <circle cx={W - padR} cy={ty(lastPt.smoothedMl)} r="3" fill="#f97316" />;
+        })()}
+
+        {/* Axis */}
+        <line x1={padL} y1={padT} x2={padL} y2={padT + gH} stroke="#475569" strokeWidth="1" />
+        <line x1={padL} y1={padT + gH} x2={W - padR} y2={padT + gH} stroke="#475569" strokeWidth="1" />
+        <text x={padL} y={padT + gH + 10} textAnchor="middle" fontSize="7" fill="#64748b">{fmtTime(live.lastFeedTs, live.timeFormat)}</text>
+        {live.capped && (
+          <text x={W - padR} y={padT + gH + 10} textAnchor="end" fontSize="7" fill="#f97316">cap</text>
+        )}
+        {!live.capped && (
+          <text x={tStarX} y={padT + gH + 10} textAnchor="middle" fontSize="7" fill="#3b82f6">T*</text>
+        )}
+      </svg>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-24 text-slate-300 text-sm leading-relaxed">
@@ -96,74 +233,92 @@ export default function NextFeedInfoPage() {
 
       {live && (
         <>
-          {/* Active predictor explanation */}
           {live.useP3 ? (
-            <div className="space-y-3 mb-6">
+            <div className="space-y-4 mb-6">
               <h2 className="text-slate-100 font-semibold">Predictor 3 — Optimised</h2>
+
+              {/* Concept */}
               <p>
-                Finds T* — the earliest moment at which giving the next bottle would bring the smoothed total
-                back to exactly the daily target. Unlike Predictor 2, it does not compute a correction from the
-                surplus: it searches directly for when the energy balance is right.
+                After the last feed, the smoothed intake <strong className="text-slate-200">decays</strong> as
+                older bottles lose credit. Predictor 3 finds <strong className="text-slate-200">T*</strong> — the
+                exact moment when the smoothed value has decayed far enough that giving the next bottle would bring
+                the baby back to exactly the daily target.
               </p>
               <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs text-slate-300 space-y-0.5">
-                <div>T* = first time where:</div>
-                <div className="pl-3">smoothed(T*) + nextBottle = dailyTarget</div>
-                <div className="mt-1 text-slate-500">i.e. smoothed(T*) = dailyTarget − nextBottle</div>
+                <div>smoothed(T*) = dailyTarget − nextBottle</div>
+                <div className="text-slate-500 mt-1">= {Math.round(live.dailyTargetMl)} − {Math.round(live.nextBottleMilkMl)} = {Math.round(live.targetBeforeMl)} ml</div>
               </div>
-              <p className="text-slate-400 text-sm">
-                As time passes, older bottles lose energy credit. T* is the moment when the credits have decayed
-                to exactly <em>dailyTarget − nextBottle</em> — so giving the next bottle fills the balance to
-                exactly target. Constrained to ±{live.p3MaxCorrectionMin} min around the standard interval.
-              </p>
 
-              <div className={`rounded-xl border p-4 mt-2 ${live.capped ? 'border-orange-700/50 bg-orange-900/10' : live.surplusMl < 0 ? 'border-blue-700/50 bg-blue-900/10' : 'border-yellow-700/50 bg-yellow-900/10'}`}>
-                <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">For this feed</div>
-                <div className="space-y-1.5 text-sm">
-                  {/* Energy balance */}
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Smoothed at last feed</span>
-                    <span className="font-semibold text-slate-300">{Math.round(live.smoothedAtLastFeedMl)} ml</span>
+              {/* Decay graph */}
+              <div>
+                <p className="text-xs text-slate-500 mb-2 uppercase tracking-wide">Smoothed intake across the window</p>
+                <div className="bg-slate-800 rounded-xl p-3">
+                  {renderGraph(live)}
+                  <p className="text-xs text-slate-500 mt-2">
+                    <span className="text-cyan-400">━</span> Smoothed decay &nbsp;
+                    <span className="text-amber-400">- -</span> Target line ({Math.round(live.targetBeforeMl)} ml) &nbsp;
+                    {!live.capped && <><span className="text-blue-400">●</span> T*</>}
+                    {live.capped && <><span className="text-orange-400">●</span> Cap (window end)</>}
+                  </p>
+                </div>
+              </div>
+
+              {/* Narrative explanation */}
+              <div className="bg-slate-800/50 rounded-xl p-4 space-y-2 text-sm">
+                {/* Opening state */}
+                <p>
+                  At the last feed, smoothed intake was{' '}
+                  <strong className="text-slate-200">{Math.round(live.smoothedAtLastFeedMl)} ml</strong>
+                  {live.surplusMl >= 0
+                    ? <> — <span className="text-yellow-400">+{Math.round(live.surplusMl)} ml above target</span>. The curve starts above the target line and descends toward it.</>
+                    : <> — <span className="text-blue-400">{Math.round(live.surplusMl)} ml below target</span>. The curve is already below the target line.</>
+                  }
+                </p>
+
+                {live.surplusMl < 0 ? (
+                  // Underfed at last feed: smoothed already ≤ targetBefore → T* = lastFeed (feed now)
+                  <p>
+                    Because the smoothed value is <em>already</em> below the target line, P3 says feed as soon
+                    as possible — T* is at the last feed time itself.
+                    {live.p3DeltaMin < 0
+                      ? <> The result is <strong className="text-blue-300">{Math.abs(live.p3DeltaMin)} min earlier</strong> than the standard interval.</>
+                      : <> This lands <strong className="text-slate-300">at the standard interval</strong>.</>}
+                  </p>
+                ) : !live.capped ? (
+                  // Found T* within window
+                  <p>
+                    The curve crosses the target line at <strong className="text-blue-300">{fmtTime(live.tStarTs, live.timeFormat)}</strong>{' '}
+                    — <strong className="text-blue-300">{Math.abs(live.p3DeltaMin)} min {live.p3DeltaMin < 0 ? 'earlier' : 'later'}</strong> than
+                    the standard interval. That is T*: the earliest moment at which feeding brings the baby exactly back to target.
+                  </p>
+                ) : (
+                  // Capped: curve never reaches target line within the window
+                  <p>
+                    The curve <strong className="text-orange-400">never reaches the target line</strong> within the allowed
+                    window (standard ±{live.p3MaxCorrectionMin} min). The intake is decaying too slowly — the baby is
+                    significantly ahead of target. P3 waits as long as possible and sets T* at the window end:{' '}
+                    <strong className="text-orange-300">{fmtTime(live.tStarTs, live.timeFormat)}</strong>.
+                  </p>
+                )}
+
+                {/* Window endpoint summary */}
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700 text-xs text-center">
+                  <div>
+                    <div className="text-slate-500 mb-0.5">Last feed</div>
+                    <div className="text-slate-300 font-mono">{fmtTime(live.lastFeedTs, live.timeFormat)}</div>
+                    <div className="text-slate-500">{Math.round(live.smoothedAtLastFeedMl)} ml</div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Daily target</span>
-                    <span className="font-semibold text-slate-300">{Math.round(live.smoothedAtLastFeedMl - live.surplusMl)} ml</span>
+                  <div>
+                    <div className="text-slate-500 mb-0.5">{live.capped ? 'Cap (T*)' : 'T*'}</div>
+                    <div className={`font-mono font-semibold ${live.capped ? 'text-orange-300' : 'text-blue-300'}`}>{fmtTime(live.tStarTs, live.timeFormat)}</div>
+                    <div className="text-slate-500">
+                      {live.p3DeltaMin === 0 ? 'on standard' : live.p3DeltaMin > 0 ? `+${live.p3DeltaMin}m` : `${live.p3DeltaMin}m`}
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Balance</span>
-                    <span className={`font-semibold ${live.surplusMl >= 0 ? 'text-yellow-400' : 'text-blue-400'}`}>
-                      {live.surplusMl >= 0 ? `+${Math.round(live.surplusMl)} ml (overfed)` : `${Math.round(live.surplusMl)} ml (underfed)`}
-                    </span>
-                  </div>
-                  {/* P3 search target */}
-                  <div className="flex justify-between pt-1 border-t border-slate-700">
-                    <span className="text-slate-400">Next bottle ({live.nextBottleWaterMl} ml water)</span>
-                    <span className="text-slate-300 font-semibold">{Math.round(live.nextBottleMilkMl)} ml formula</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">T* target (smoothed must decay to)</span>
-                    <span className="text-slate-300 font-semibold">{Math.round(live.targetBeforeMl)} ml</span>
-                  </div>
-                  {/* Result */}
-                  <div className="flex justify-between pt-1 border-t border-slate-700">
-                    <span className="text-slate-400">T* vs standard</span>
-                    <span className={`font-semibold tabular-nums ${live.p3DeltaMin > 0 ? 'text-yellow-400' : live.p3DeltaMin < 0 ? 'text-blue-400' : 'text-green-400'}`}>
-                      {live.p3DeltaMin === 0 ? 'same as standard' : live.p3DeltaMin > 0 ? `+${live.p3DeltaMin} min` : `${live.p3DeltaMin} min`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Window (±{live.p3MaxCorrectionMin} min)</span>
-                    <span className={`font-semibold ${live.capped ? 'text-orange-400' : 'text-slate-400'}`}>
-                      {live.capped
-                        ? `hit limit → T* = standard +${live.p3MaxCorrectionMin} min`
-                        : 'T* found within window'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t border-slate-700">
-                    <span className="text-slate-300 font-medium">Adjusted next feed</span>
-                    <span className="text-blue-300 font-bold">
-                      {formatDateTime(live.adjustedTs, live.timeFormat)}{' '}
-                      <span className="text-slate-500 font-normal text-xs">{fmtRel(live.adjustedTs, now)}</span>
-                    </span>
+                  <div>
+                    <div className="text-slate-500 mb-0.5">Window end</div>
+                    <div className="text-slate-300 font-mono">{fmtTime(live.windowEndTs, live.timeFormat)}</div>
+                    <div className="text-slate-500">std +{live.p3MaxCorrectionMin}m</div>
                   </div>
                 </div>
               </div>
@@ -173,16 +328,14 @@ export default function NextFeedInfoPage() {
               <h2 className="text-slate-100 font-semibold">Predictor 2 — Adjusted</h2>
               <p>
                 Compares the smoothed 24h intake to the daily target. The difference
-                (surplus or deficit) is translated into a time correction that shifts
-                the standard next feed time earlier or later.
+                is translated into a time correction that shifts the standard next feed time earlier or later.
               </p>
               <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs text-slate-300 whitespace-pre">{`surplus    = smoothed − dailyTarget
 correction = surplus / hourlyRate  (capped ±${live.maxCorrectionMin} min)
 adjusted   = standard + correction`}</div>
 
-              {/* Current situation */}
               <div className={`rounded-xl border p-4 mt-2 ${live.surplusMl >= 0 ? 'border-yellow-700/50 bg-yellow-900/10' : 'border-blue-700/50 bg-blue-900/10'}`}>
-                <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">For this feed</div>
+                <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Current situation</div>
                 <div className="space-y-1.5 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-400">{live.surplusMl >= 0 ? 'Overfed by' : 'Underfed by'}</span>
@@ -191,15 +344,15 @@ adjusted   = standard + correction`}</div>
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Surplus compensation</span>
+                    <span className="text-slate-400">Time correction</span>
                     <span className={`font-semibold tabular-nums ${live.rawCorrectionMin > 0 ? 'text-yellow-400' : live.rawCorrectionMin < 0 ? 'text-blue-400' : 'text-green-400'}`}>
                       {live.rawCorrectionMin === 0 ? 'none' : live.rawCorrectionMin > 0 ? `+${live.rawCorrectionMin} min` : `${live.rawCorrectionMin} min`}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Cap (±{live.maxCorrectionMin} min)</span>
-                    <span className={`font-semibold ${live.capped ? 'text-orange-400' : 'text-slate-500'}`}>
-                      {live.capped ? `applied → ${live.clampedMin > 0 ? '+' : ''}${live.clampedMin} min` : 'not needed'}
+                    <span className={`font-semibold ${Math.abs(live.rawCorrectionMin) > live.maxCorrectionMin ? 'text-orange-400' : 'text-slate-500'}`}>
+                      {Math.abs(live.rawCorrectionMin) > live.maxCorrectionMin ? `applied → ${live.clampedMin > 0 ? '+' : ''}${live.clampedMin} min` : 'not needed'}
                     </span>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-slate-700">
@@ -216,9 +369,7 @@ adjusted   = standard + correction`}</div>
         </>
       )}
 
-      {!live && (
-        <p className="text-slate-400">Loading…</p>
-      )}
+      {!live && <p className="text-slate-400">Loading…</p>}
 
       <div className="bg-slate-800 rounded-xl p-4 mt-2">
         <p className="text-slate-500 text-xs">
