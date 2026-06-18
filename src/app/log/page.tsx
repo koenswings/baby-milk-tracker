@@ -10,17 +10,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 const QUICK_VOLUMES = [30, 60, 90, 120, 150];
 
-function nowDateString(): string {
+function nowDatetimeString(): string {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function nowTimeString(): string {
-  const d = new Date();
-  return d.toTimeString().slice(0, 5);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function LogPageInner() {
@@ -33,8 +26,8 @@ function LogPageInner() {
   const hasRec = Number.isFinite(recParam) && recParam > 0;
   const initialBottle = hasRec ? recParam : 90;
 
-  const [date, setDate] = useState(nowDateString());
-  const [time, setTime] = useState(nowTimeString());
+  const [datetime, setDatetime] = useState(nowDatetimeString);
+  const [datetimeEdited, setDatetimeEdited] = useState(false);
   const [bottleSize, setBottleSize] = useState<number>(initialBottle); // selected bottle size in water ml
   const [volume, setVolume] = useState<string>(String(Math.round(waterToMilk(initialBottle)))); // milk ml
   const [saving, setSaving] = useState(false);
@@ -42,16 +35,11 @@ function LogPageInner() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [recommendedSize, setRecommendedSize] = useState<number | null>(hasRec ? recParam : null);
 
-  // Track whether user has manually edited date/time
-  const [dateEdited, setDateEdited] = useState(false);
-  const [timeEdited, setTimeEdited] = useState(false);
-
-  // Keep date/time current — refresh every 30s and on focus, but only if not manually edited.
+  // Keep datetime current — refresh every 30s and on focus, but only if not manually edited.
   // This handles midnight crossover even if the tab stays open all night.
   useEffect(() => {
     const refresh = () => {
-      if (!dateEdited) setDate(nowDateString());
-      if (!timeEdited) setTime(nowTimeString());
+      if (!datetimeEdited) setDatetime(nowDatetimeString());
     };
     const interval = setInterval(refresh, 30000);
     window.addEventListener('focus', refresh);
@@ -59,7 +47,7 @@ function LogPageInner() {
       clearInterval(interval);
       window.removeEventListener('focus', refresh);
     };
-  }, [dateEdited, timeEdited]);
+  }, [datetimeEdited]);
 
   useEffect(() => {
     Promise.all([getFeeds(), getSettings()]).then(([feeds, s]) => {
@@ -78,7 +66,7 @@ function LogPageInner() {
     if (isNaN(vol) || vol <= 0) return;
 
     setSaving(true);
-    const timestamp = new Date(`${date}T${time}`).getTime();
+    const timestamp = new Date(datetime).getTime();
     const targetMlPerDay = settings ? Math.round(settings.weightKg * settings.mlPerKgPerDay) : undefined;
     await addFeed({
       id: generateId(),
@@ -152,24 +140,13 @@ function LogPageInner() {
           />
         </div>
 
-        {/* Date */}
+        {/* Date & time */}
         <div>
-          <label className="block text-sm text-slate-400 mb-1">Date</label>
+          <label className="block text-sm text-slate-400 mb-1">Date & time</label>
           <input
-            type="date"
-            value={date}
-            onChange={(e) => { setDate(e.target.value); setDateEdited(true); }}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500"
-          />
-        </div>
-
-        {/* Time */}
-        <div>
-          <label className="block text-sm text-slate-400 mb-1">Time</label>
-          <input
-            type="time"
-            value={time}
-            onChange={(e) => { setTime(e.target.value); setTimeEdited(true); }}
+            type="datetime-local"
+            value={datetime}
+            onChange={(e) => { setDatetime(e.target.value); setDatetimeEdited(true); }}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500"
           />
         </div>
