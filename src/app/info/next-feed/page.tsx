@@ -26,6 +26,12 @@ export default function NextFeedInfoPage() {
     lastBottleVolume: number;
     timeFormat: '24h'|'12h';
     useP3: boolean;
+    targetBeforeMl: number;
+    smoothedAtLastFeedMl: number;
+    nextBottleMilkMl: number;
+    nextBottleWaterMl: number;
+    p3MaxCorrectionMin: number;
+    p3DeltaMin: number;
   } | null>(null);
   const [now] = useState(Date.now());
 
@@ -50,6 +56,15 @@ export default function NextFeedInfoPage() {
       const adjustedTs = result?.timestamp ?? standardTs + clampedMs;
       const capped = result?.capped ?? false;
 
+      // P3-specific
+      const nextBottleMilkMl = waterToMilk(settings.nextBottleWaterMl ?? 90);
+      const targetBefore = derived.dailyTargetMl - nextBottleMilkMl;
+      const smoothedAtLastFeed = smoothedTotal; // already computed above
+      const p3StandardNext = lastFeed.timestamp + (nextBottleMilkMl / derived.hourlyRate) * 3_600_000;
+      const p3MaxCorrectionMs = (nextBottleMilkMl / derived.hourlyRate) * 3_600_000 * (settings.maxCorrectionPct / 100);
+      const p3MaxCorrectionMin = Math.round(p3MaxCorrectionMs / 60_000);
+      const p3DeltaMin = Math.round((adjustedTs - p3StandardNext) / 60_000); // T* minus P3's own standard
+
       setLive({
         surplusMl: surplus,
         rawCorrectionMin: Math.round(rawCorrectionMs / 60_000),
@@ -62,6 +77,12 @@ export default function NextFeedInfoPage() {
         lastBottleVolume: lastFeed.volume,
         timeFormat: settings.timeFormat,
         useP3: settings.useTargetAwarePredictor !== false,
+        targetBeforeMl: targetBefore,
+        smoothedAtLastFeedMl: smoothedAtLastFeed,
+        nextBottleMilkMl: nextBottleMilkMl,
+        nextBottleWaterMl: settings.nextBottleWaterMl ?? 90,
+        p3MaxCorrectionMin: p3MaxCorrectionMin,
+        p3DeltaMin: p3DeltaMin,
       });
     })();
   }, []);
@@ -80,38 +101,61 @@ export default function NextFeedInfoPage() {
             <div className="space-y-3 mb-6">
               <h2 className="text-slate-100 font-semibold">Predictor 3 — Optimised</h2>
               <p>
-                Finds the exact time T* at which giving the next bottle would bring the baby
-                back to exactly the daily target — zero surplus, zero deficit.
+                Finds T* — the earliest moment at which giving the next bottle would bring the smoothed total
+                back to exactly the daily target. Unlike Predictor 2, it does not compute a correction from the
+                surplus: it searches directly for when the energy balance is right.
               </p>
-              <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs text-slate-300 whitespace-pre">{`smoothed(T*) + milkPerBottle = dailyTarget`}</div>
-              <p className="text-slate-400">
-                As time passes, older bottles lose energy credit. T* is the moment when the
-                remaining credits have decayed to exactly <em>dailyTarget − milkPerBottle</em>,
-                so the next bottle fills the balance to exactly target.
+              <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs text-slate-300 space-y-0.5">
+                <div>T* = first time where:</div>
+                <div className="pl-3">smoothed(T*) + nextBottle = dailyTarget</div>
+                <div className="mt-1 text-slate-500">i.e. smoothed(T*) = dailyTarget − nextBottle</div>
+              </div>
+              <p className="text-slate-400 text-sm">
+                As time passes, older bottles lose energy credit. T* is the moment when the credits have decayed
+                to exactly <em>dailyTarget − nextBottle</em> — so giving the next bottle fills the balance to
+                exactly target. Constrained to ±{live.p3MaxCorrectionMin} min around the standard interval.
               </p>
 
-              {/* Current situation */}
-              <div className={`rounded-xl border p-4 mt-2 ${live.surplusMl >= 0 ? 'border-yellow-700/50 bg-yellow-900/10' : 'border-blue-700/50 bg-blue-900/10'}`}>
+              <div className={`rounded-xl border p-4 mt-2 ${live.capped ? 'border-orange-700/50 bg-orange-900/10' : live.surplusMl < 0 ? 'border-blue-700/50 bg-blue-900/10' : 'border-yellow-700/50 bg-yellow-900/10'}`}>
                 <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">For this feed</div>
                 <div className="space-y-1.5 text-sm">
+                  {/* Energy balance */}
                   <div className="flex justify-between">
-                    <span className="text-slate-400">{live.surplusMl >= 0 ? 'Overfed by' : 'Underfed by'}</span>
+                    <span className="text-slate-400">Smoothed at last feed</span>
+                    <span className="font-semibold text-slate-300">{Math.round(live.smoothedAtLastFeedMl)} ml</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Daily target</span>
+                    <span className="font-semibold text-slate-300">{Math.round(live.smoothedAtLastFeedMl - live.surplusMl)} ml</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Balance</span>
                     <span className={`font-semibold ${live.surplusMl >= 0 ? 'text-yellow-400' : 'text-blue-400'}`}>
-                      {Math.abs(Math.round(live.surplusMl))} ml
+                      {live.surplusMl >= 0 ? `+${Math.round(live.surplusMl)} ml (overfed)` : `${Math.round(live.surplusMl)} ml (underfed)`}
+                    </span>
+                  </div>
+                  {/* P3 search target */}
+                  <div className="flex justify-between pt-1 border-t border-slate-700">
+                    <span className="text-slate-400">Next bottle ({live.nextBottleWaterMl} ml water)</span>
+                    <span className="text-slate-300 font-semibold">{Math.round(live.nextBottleMilkMl)} ml formula</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">T* target (smoothed must decay to)</span>
+                    <span className="text-slate-300 font-semibold">{Math.round(live.targetBeforeMl)} ml</span>
+                  </div>
+                  {/* Result */}
+                  <div className="flex justify-between pt-1 border-t border-slate-700">
+                    <span className="text-slate-400">T* vs standard</span>
+                    <span className={`font-semibold tabular-nums ${live.p3DeltaMin > 0 ? 'text-yellow-400' : live.p3DeltaMin < 0 ? 'text-blue-400' : 'text-green-400'}`}>
+                      {live.p3DeltaMin === 0 ? 'same as standard' : live.p3DeltaMin > 0 ? `+${live.p3DeltaMin} min` : `${live.p3DeltaMin} min`}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Time correction (uncapped)</span>
-                    <span className={`font-semibold tabular-nums ${live.rawCorrectionMin > 0 ? 'text-yellow-400' : live.rawCorrectionMin < 0 ? 'text-blue-400' : 'text-green-400'}`}>
-                      {live.rawCorrectionMin === 0 ? 'none' : live.rawCorrectionMin > 0 ? `+${live.rawCorrectionMin} min` : `${live.rawCorrectionMin} min`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Cap (±{live.maxCorrectionMin} min)</span>
-                    <span className={`font-semibold tabular-nums ${live.capped ? 'text-orange-400' : 'text-slate-500'}`}>
+                    <span className="text-slate-400">Window (±{live.p3MaxCorrectionMin} min)</span>
+                    <span className={`font-semibold ${live.capped ? 'text-orange-400' : 'text-slate-400'}`}>
                       {live.capped
-                        ? `applied → ${live.clampedMin > 0 ? '+' : ''}${live.clampedMin} min`
-                        : `not applied (${live.clampedMin > 0 ? '+' : ''}${live.clampedMin} min)`}
+                        ? `hit limit → T* = standard +${live.p3MaxCorrectionMin} min`
+                        : 'T* found within window'}
                     </span>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-slate-700">
