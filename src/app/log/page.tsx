@@ -29,13 +29,14 @@ function LogPageInner() {
   const [datetime, setDatetime] = useState(nowDatetimeString);
   const [datetimeEdited, setDatetimeEdited] = useState(false);
   const [bottleSize, setBottleSize] = useState<number>(initialBottle); // selected bottle size in water ml
-  const [volume, setVolume] = useState<string>(String(Math.round(waterToMilk(initialBottle)))); // milk ml
+  const [inputUnit, setInputUnit] = useState<'water' | 'milk'>('milk');
+  const [volume, setVolume] = useState<string>(String(Math.round(waterToMilk(initialBottle)))); // displayed in inputUnit
   const [saving, setSaving] = useState(false);
   const [recentFeeds, setRecentFeeds] = useState<Feed[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [recommendedSize, setRecommendedSize] = useState<number | null>(hasRec ? recParam : null);
 
-  // Keep datetime current — refresh every 30s and on focus, but only if not manually edited.
+  // Keep datetime current - refresh every 30s and on focus, but only if not manually edited.
   // This handles midnight crossover even if the tab stays open all night.
   useEffect(() => {
     const refresh = () => {
@@ -59,10 +60,9 @@ function LogPageInner() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const milkMl = parseFloat(volume);
-    // volume field shows milk ml — convert back to water ml for storage
-    // (all calculations use waterToMilk(feed.volume) internally)
-    const vol = Math.round(milkToWater(milkMl));
+    const entered = parseFloat(volume);
+    // Storage is always in water ml; convert if user entered milk ml
+    const vol = inputUnit === 'milk' ? Math.round(milkToWater(entered)) : Math.round(entered);
     if (isNaN(vol) || vol <= 0) return;
 
     setSaving(true);
@@ -83,7 +83,7 @@ function LogPageInner() {
       <h1 className="text-2xl font-bold text-slate-100 mb-2">➕ Log Feed</h1>
       <div className="bg-slate-800 rounded-xl p-3 mb-4 text-xs text-slate-400 leading-relaxed">
         <p className="mb-1">Log <strong className="text-slate-300">when you started</strong> giving the bottle and the <strong className="text-slate-300">total milk given</strong> in that sitting.</p>
-        <p>If the baby didn&apos;t finish in one go, give the total across all steps at the end — but use the <strong className="text-slate-300">start time</strong> of the first step.</p>
+        <p>If the baby didn&apos;t finish in one go, give the total across all steps at the end - but use the <strong className="text-slate-300">start time</strong> of the first step.</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -97,7 +97,7 @@ function LogPageInner() {
                 type="button"
                 onClick={() => {
                   setBottleSize(v);
-                  setVolume(String(Math.round(waterToMilk(v))));
+                  setVolume(inputUnit === 'milk' ? String(Math.round(waterToMilk(v))) : String(v));
                   // Parent picked a different size → recommendation overridden
                   if (v !== recommendedSize) setRecommendedSize(null);
                 }}
@@ -113,31 +113,65 @@ function LogPageInner() {
             ))}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            {bottleSize} ml water → {Math.round(waterToMilk(bottleSize))} ml milk
+            {bottleSize} ml water = {Math.round(waterToMilk(bottleSize))} ml milk
           </p>
           {recommendedSize !== null && (
             <p className={`text-xs mt-1 ${recStatus === 'overfed' ? 'text-amber-400' : 'text-green-400'}`}>
               {recStatus === 'overfed'
                 ? `Baby is above daily target. Smallest bottle: ${recommendedSize} ml water = ${Math.round(waterToMilk(recommendedSize))} ml milk.`
                 : recStatus === 'capped'
-                ? `Large deficit — even a full ${recommendedSize} ml water (${Math.round(waterToMilk(recommendedSize))} ml milk) won't fully cover it.`
-                : `${recommendedSize} ml water = ${Math.round(waterToMilk(recommendedSize))} ml milk — brings baby closest to daily target.`}
+                ? `Large deficit - even a full ${recommendedSize} ml water (${Math.round(waterToMilk(recommendedSize))} ml milk) won't fully cover it.`
+                : `${recommendedSize} ml water = ${Math.round(waterToMilk(recommendedSize))} ml milk - brings baby closest to daily target.`}
             </p>
           )}
         </div>
 
-        {/* Milk amount — pre-filled, editable if baby didn’t finish */}
+        {/* Volume — pre-filled from bottle pick, editable, with water/milk toggle */}
         <div>
-          <label className="block text-sm text-slate-400 mb-1">Total milk given (ml) — edit if baby didn’t finish</label>
-          <input
-            type="number"
-            value={volume}
-            onChange={(e) => setVolume(e.target.value)}
-            min="1"
-            max="500"
-            step="any"
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
-          />
+          <label className="block text-sm text-slate-400 mb-1">
+            {inputUnit === 'milk' ? 'Total milk given (ml)' : 'Total water used (ml)'} — edit if baby didn&apos;t finish
+          </label>
+          <div className="flex gap-2 items-center">
+            <input
+              type="number"
+              value={volume}
+              onChange={(e) => setVolume(e.target.value)}
+              min="1"
+              max="500"
+              step="any"
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
+            />
+            {/* Water / Milk toggle */}
+            <div className="flex rounded overflow-hidden border border-slate-600 text-sm shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (inputUnit === 'milk') {
+                    const milkVal = parseFloat(volume);
+                    if (!isNaN(milkVal)) setVolume(String(Math.round(milkToWater(milkVal))));
+                    setInputUnit('water');
+                  }
+                }}
+                className={`px-3 py-2 ${inputUnit === 'water' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}
+              >water</button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (inputUnit === 'water') {
+                    const waterVal = parseFloat(volume);
+                    if (!isNaN(waterVal)) setVolume(String(Math.round(waterToMilk(waterVal))));
+                    setInputUnit('milk');
+                  }
+                }}
+                className={`px-3 py-2 ${inputUnit === 'milk' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}
+              >milk</button>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            {inputUnit === 'milk'
+              ? `= ${Math.round(milkToWater(parseFloat(volume) || 0))} ml water`
+              : `= ${Math.round(waterToMilk(parseFloat(volume) || 0))} ml milk`}
+          </p>
         </div>
 
         {/* Date & time */}
@@ -156,7 +190,7 @@ function LogPageInner() {
           disabled={saving}
           className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold py-4 rounded-xl text-lg transition-colors"
         >
-          {saving ? "Saving…" : "Save Feed"}
+          {saving ? "Saving..." : "Save Feed"}
         </button>
       </form>
 
@@ -186,7 +220,7 @@ function LogPageInner() {
 
 export default function LogPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="text-slate-400">Loading…</div></div>}>
+    <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="text-slate-400">Loading...</div></div>}>
       <LogPageInner />
     </Suspense>
   );
