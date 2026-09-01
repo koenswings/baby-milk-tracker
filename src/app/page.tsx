@@ -8,37 +8,21 @@ import {
   strict24hTotal,
   smoothedEffective,
   smoothedAtTime,
-  nextFeedTime,
-  bestBottleSizeNow,
   waterToMilk,
+  milkToWater,
+  computePredictors,
 } from "@/lib/calculations";
-import { Feed, Settings, DerivedSettings } from "@/types";
-import { useRouter } from "next/navigation";
+import { Feed, Settings, DerivedSettings, PredictorResult } from "@/types";
 import Strict24hExplainer from "@/components/Strict24hExplainer";
 import SmoothedExplainer from "@/components/SmoothedExplainer";
 import DailyTargetCard from "@/components/cards/DailyTargetCard";
 import StatusCard from "@/components/cards/StatusCard";
-import NextFeedCard from "@/components/cards/NextFeedCard";
+import CanTakeCard from "@/components/cards/CanTakeCard";
+import FeedingTimelineCards from "@/components/cards/FeedingTimelineCards";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
-import { formatDateTime } from "@/lib/formatTime";
-
-function isToday(ms: number): boolean {
-  const d = new Date(ms);
-  const t = new Date();
-  return d.getDate() === t.getDate() &&
-    d.getMonth() === t.getMonth() &&
-    d.getFullYear() === t.getFullYear();
-}
-
-function isTomorrow(ms: number): boolean {
-  const d = new Date(ms);
-  const t = new Date();
-  t.setDate(t.getDate() + 1);
-  return d.getDate() === t.getDate() &&
-    d.getMonth() === t.getMonth() &&
-    d.getFullYear() === t.getFullYear();
-}
+import { formatTime } from "@/lib/formatTime";
+import { estimateZChannel, predictWeightKg } from "@/lib/whoGrowth";
 
 function formatRelative(ms: number, now: number): string {
   const diff = ms - now;
@@ -48,6 +32,33 @@ function formatRelative(ms: number, now: number): string {
   const remMins = mins % 60;
   const timeStr = hrs > 0 ? `${hrs}h ${remMins}m` : `${mins}m`;
   return diff > 0 ? `in ${timeStr}` : `${timeStr} ago`;
+}
+
+function formatIntervalLabel(ms: number): string {
+  const totalMins = Math.round(ms / 60000);
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function DigClock({ ts, timeFormat, sub }: { ts: number | null; timeFormat: '24h' | '12h'; sub?: string }) {
+  if (!ts) return <span className="text-slate-500 text-xs">No feeds yet</span>;
+  const d = new Date(ts);
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = timeFormat === '12h' ? (h >= 12 ? 'PM' : 'AM') : null;
+  if (timeFormat === '12h') h = h % 12 || 12;
+  const hh = String(h).padStart(2, '0');
+  const mm = String(m).padStart(2, '0');
+  return (
+    <>
+      <div className="font-mono font-bold text-2xl text-blue-300 tracking-widest tabular-nums leading-none">
+        {hh}<span className="text-slate-500">:</span>{mm}
+        {ampm && <span className="text-sm text-slate-400 ml-0.5">{ampm}</span>}
+      </div>
+      {sub && <div className="text-xs text-slate-500 mt-0.5">{sub}</div>}
+    </>
+  );
 }
 
 export default function Dashboard() {
@@ -61,43 +72,41 @@ export default function Dashboard() {
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [newWeightKg, setNewWeightKg] = useState('');
   const [newWeightTime, setNewWeightTime] = useState('');
-  const [nextBottleWaterMl, setNextBottleWaterMl] = useState<number>(90);
-  const [showNextBottlePicker, setShowNextBottlePicker] = useState(false);
-  const [standardBottleWaterMl, setStandardBottleWaterMl] = useState<number>(90);
-  const [showStandardBottlePicker, setShowStandardBottlePicker] = useState(false);
-  const router = useRouter();
+  const [showBottlePicker, setShowBottlePicker] = useState(false);
+  const [predictors, setPredictors] = useState<PredictorResult | null>(null);
+  const [showBabyProfile, setShowBabyProfile] = useState(false);
+  const [profileSex, setProfileSex] = useState<'F' | 'M' | null>(null);
+  const [profileDob, setProfileDob] = useState('');
 
   const load = useCallback(async () => {
-    // One-time migration of any existing localStorage data to the server
     await migrateFromLocalStorage();
     const [f, s, w] = await Promise.all([getFeeds(), getSettings(), getWeights()]);
     setFeeds(f);
     setSettings(s);
-    setDerived(deriveSettings(s));
+    const d = deriveSettings(s);
+    setDerived(d);
     setWeights(w);
-    setNextBottleWaterMl(s.nextBottleWaterMl);
-    // Standard bottle defaults to last feed volume if available, else nextBottleWaterMl
-    setStandardBottleWaterMl(s.nextBottleWaterMl);
     setNow(Date.now());
+    // Compute predictors
+    const preds = computePredictors(f, d.hourlyRate, d.dailyTargetMl, s.preferredBottleWaterMl);
+    setPredictors(preds);
+    // Show baby profile onboarding if DOB or sex is missing
+    if (!s.dateOfBirthMs || !s.sex) {
+      setProfileSex(s.sex ?? null);
+      setProfileDob(s.dateOfBirthMs ? new Date(s.dateOfBirthMs).toISOString().slice(0, 10) : '');
+      setShowBabyProfile(true);
+    }
   }, []);
 
   useEffect(() => {
     load();
-
-    // Reload on page focus (handles navigation back from Settings or Log)
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
-
-    // Reload when localStorage changes (CSV import etc.)
     const onStorage = (e: StorageEvent) => {
       if (e.key === "bmt_feeds" || e.key === "bmt_settings") load();
     };
     window.addEventListener("storage", onStorage);
-
-    // Only the relative time labels ("in Xh Ym") need to tick — update 'now' every minute
-    // without reloading feeds/settings (status calculations are frozen at lastFeed.timestamp)
     const clockInterval = setInterval(() => setNow(Date.now()), 60000);
-
     return () => {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("storage", onStorage);
@@ -117,61 +126,148 @@ export default function Dashboard() {
     ? feeds.reduce((a, b) => (a.timestamp > b.timestamp ? a : b))
     : null;
 
-  // Both Strict and Smoothed frozen at last-feed time — only change when a new feed is logged
   const smoothedAt = lastFeed ? lastFeed.timestamp : now;
   const strict24h = strict24hTotal(feeds, smoothedAt);
-  // Live gauge: smoothed at actual now, decays every minute with the clock tick
   const liveSmoothedMl = smoothedAtTime(feeds, derived.hourlyRate, now);
   const liveSmoothedPct = (liveSmoothedMl / derived.dailyTargetMl) * 100;
-  const { totalMl: smoothedMl, bottles: smoothedBottles } = smoothedEffective(
+  const { totalMl: smoothedMl } = smoothedEffective(
     feeds,
     derived.hourlyRate,
-    settings.standardBottleVolume,
+    settings.preferredBottleWaterMl,
     smoothedAt
   );
-
   const strict24hPct = (strict24h / derived.dailyTargetMl) * 100;
   const smoothedPct = (smoothedMl / derived.dailyTargetMl) * 100;
 
-  const nextFeedResult = nextFeedTime(feeds, derived.hourlyRate, smoothedMl, derived.dailyTargetMl, { ...settings, nextBottleWaterMl });
-  const nextFeed = nextFeedResult?.timestamp ?? null;
-  // Standard next for the Standard pill — uses standardBottleWaterMl
-  const standardBottleMilkMl = waterToMilk(standardBottleWaterMl);
-  const standardNext = lastFeed ? lastFeed.timestamp + (standardBottleMilkMl / derived.hourlyRate) * 3_600_000 : null;
-  // P3's own internal standard — uses nextBottleWaterMl (same baseline P3 optimises against)
-  // Used for the "Xm earlier/later" delta label so it matches the explainer's correction value.
-  const p3StandardBottleMilkMl = waterToMilk(nextBottleWaterMl);
-  const p3StandardNext = lastFeed ? lastFeed.timestamp + (p3StandardBottleMilkMl / derived.hourlyRate) * 3_600_000 : null;
+  // WHO z-score and effective weight
+  const startOfToday = (() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); })();
+  let effectiveWeightKg = settings.weightKg;
+  let zScore: number | null = null;
+  let weightSource: 'manual' | 'predicted' = 'manual';
+  if (settings.dateOfBirthMs && settings.sex && weights.length >= 1) {
+    zScore = estimateZChannel(weights, settings.dateOfBirthMs, settings.sex);
+    // Only use the WHO growth model prediction if there is no recent measurement.
+    // If a real weigh-in exists within the last 7 days, use it directly — projecting
+    // forward from historical z-scores would override a fresh measurement with a
+    // potentially higher estimate (e.g. showing 7.62 kg when 7.5 kg was measured yesterday).
+    const latestWeight = [...weights].sort((a, b) => b.timestamp - a.timestamp)[0];
+    const daysSinceLastWeigh = (startOfToday - latestWeight.timestamp) / 86_400_000;
+    if (daysSinceLastWeigh <= 7) {
+      effectiveWeightKg = latestWeight.weightKg;
+      weightSource = 'manual';
+    } else {
+      const predicted = predictWeightKg(weights, settings.dateOfBirthMs, settings.sex, startOfToday);
+      if (predicted !== null && predicted > 0) {
+        effectiveWeightKg = predicted;
+        weightSource = 'predicted';
+      }
+    }
+  }
+  const effectiveDailyTargetMl = effectiveWeightKg * settings.mlPerKgPerDay;
+
+  const tf = settings.timeFormat;
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-24">
+      {/* Header */}
       <div className="flex items-baseline justify-between mb-1">
         <h1 className="text-2xl font-bold text-slate-100">🍼 MilkWise</h1>
-        <span className="text-xs text-slate-500">v1.0.81</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">v1.1.45</span>
+          <Link
+            href="/info/app"
+            className="w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 text-xs font-bold flex items-center justify-center leading-none"
+          >?</Link>
+        </div>
       </div>
-      <p className="text-slate-400 text-sm mb-6">
-        {settings.weightKg} kg · Target: {Math.round(derived.dailyTargetMl)} ml/day
+      <p className="text-slate-400 text-sm mb-4">
+        {effectiveWeightKg.toFixed(2)} kg{weightSource === 'predicted' ? ' (est.)' : ''}
+        {zScore !== null && (
+          <span className={`ml-2 font-semibold ${
+            Math.abs(zScore) <= 1 ? 'text-green-400' :
+            Math.abs(zScore) <= 2 ? 'text-yellow-400' : 'text-red-400'
+          }`}>Z {zScore >= 0 ? '+' : ''}{zScore.toFixed(1)}</span>
+        )}
+        {' · '}Target: {Math.round(effectiveDailyTargetMl)} ml/day
       </p>
 
-      {/* Quick log button */}
-      <div className="flex gap-2 mb-3">
-        <Link href="/log" className="flex-1 text-center bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-colors">
+      {/* Three equal action buttons */}
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <Link
+          href="/log"
+          className="text-center bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-colors text-sm"
+        >
           ➕ Log Feed
         </Link>
         <button
           onClick={() => {
             const d = new Date();
-            const pad = (n: number) => String(n).padStart(2,'0');
+            const pad = (n: number) => String(n).padStart(2, '0');
             const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
             setNewWeightKg(settings.weightKg.toString());
             setNewWeightTime(local);
             setShowWeightModal(true);
           }}
-          className="px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded-xl transition-colors"
+          className="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-colors text-sm"
         >
           ⚖️ Weight
         </button>
+        <button
+          onClick={() => setShowBottlePicker(true)}
+          className="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-colors text-sm"
+        >
+          🍼 Bottle Size
+        </button>
       </div>
+
+      {/* Baby profile onboarding modal */}
+      {showBabyProfile && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700">
+            <h2 className="text-lg font-bold text-slate-100 mb-1">👶 Baby profile</h2>
+            <p className="text-sm text-slate-400 mb-5">Needed for the WHO growth model and automatic weight tracking.</p>
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm text-slate-300 font-medium mb-2">Sex</label>
+                <div className="flex gap-2">
+                  {(['F', 'M'] as const).map(s => (
+                    <button key={s} onClick={() => setProfileSex(s)}
+                      className={`flex-1 py-2.5 rounded-xl font-semibold transition-colors ${
+                        profileSex === s ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                      }`}>
+                      {s === 'F' ? '👧 Girl' : '👦 Boy'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-300 font-medium mb-2">🎂 Date of birth</label>
+                <input
+                  type="date"
+                  value={profileDob}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setProfileDob(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+            <button
+              disabled={!profileSex || !profileDob}
+              onClick={async () => {
+                if (!profileSex || !profileDob || !settings) return;
+                const dob = new Date(profileDob + 'T00:00:00').getTime();
+                const updated = { ...settings, sex: profileSex, dateOfBirthMs: dob };
+                await saveSettings(updated);
+                setShowBabyProfile(false);
+                await load();
+              }}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors"
+            >
+              Save &amp; continue
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Weight modal */}
       {showWeightModal && (
@@ -217,61 +313,46 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* §3.5 Next bottle picker modal */}
-      {/* Standard bottle picker modal */}
-      {showStandardBottlePicker && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 pb-24" onClick={() => setShowStandardBottlePicker(false)}>
+      {/* Preferred bottle picker modal */}
+      {showBottlePicker && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 pb-24" onClick={() => setShowBottlePicker(false)}>
           <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-100 mb-1">Next bottle — Standard predictor</h2>
-            <p className="text-sm text-slate-400 mb-5">Sets the interval for the standard next feed time.</p>
-            <div className="flex gap-2">
-              {[60, 90, 120, 150].map((v) => (
-                <button key={v} onClick={() => { setStandardBottleWaterMl(v); setShowStandardBottlePicker(false); }}
-                  className={`flex-1 py-3 rounded-lg font-semibold transition-colors ${
-                    standardBottleWaterMl === v ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}>{v} ml</button>
-              ))}
+            <h2 className="text-lg font-bold text-slate-100 mb-1">🍼 Preferred Bottle Size</h2>
+            <p className="text-sm text-slate-400 mb-5">Sets the standard interval and predictor targets.</p>
+            <div className="grid grid-cols-2 gap-3">
+              {[60, 90, 120, 150].map((v) => {
+                const milkMl = Math.round(waterToMilk(v));
+                const isSelected = settings.preferredBottleWaterMl === v;
+                return (
+                  <button
+                    key={v}
+                    onClick={async () => {
+                      const updated = { ...settings, preferredBottleWaterMl: v };
+                      await saveSettings(updated);
+                      setShowBottlePicker(false);
+                      await load();
+                    }}
+                    className={`py-4 rounded-xl font-semibold transition-colors flex flex-col items-center gap-1 ${
+                      isSelected ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    <span className="text-lg">{v} ml</span>
+                    <span className={`text-xs ${isSelected ? 'text-blue-200' : 'text-slate-500'}`}>= {milkMl} ml milk</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
       )}
 
-      {/* Adjusted (P3) bottle picker modal */}
-      {showNextBottlePicker && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 pb-24" onClick={() => setShowNextBottlePicker(false)}>
-          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-100 mb-1">Next bottle for Predictor 3</h2>
-            <p className="text-sm text-slate-400 mb-5">Predictor 3 assumes you&apos;ll give this bottle at the next feed.</p>
-            <div className="flex gap-2">
-              {[60, 90, 120, 150].map((v) => (
-                <button
-                  key={v}
-                  onClick={async () => {
-                    setNextBottleWaterMl(v);
-                    await saveSettings({ ...settings, nextBottleWaterMl: v });
-                    setShowNextBottlePicker(false);
-                  }}
-                  className={`flex-1 py-3 rounded-lg font-semibold transition-colors ${
-                    nextBottleWaterMl === v
-                      ? "bg-blue-600 text-white"
-                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                  }`}
-                >
-                  {v} ml
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Daily target — uses displayBottleVolumeWater from settings */}
+      {/* Daily target card */}
       <DailyTargetCard
-        settings={{ ...settings, standardBottleVolume: settings.displayBottleVolumeWater }}
-        derived={deriveSettings({ ...settings, standardBottleVolume: settings.displayBottleVolumeWater })}
+        settings={settings}
+        derived={derived}
       />
 
-      {/* 24h status — uses displayBottleVolumeWater */}
+      {/* Status card */}
       <StatusCard
         strict24h={strict24h}
         strictPct={strict24hPct}
@@ -280,7 +361,8 @@ export default function Dashboard() {
         liveSmoothedMl={liveSmoothedMl}
         liveSmoothedPct={liveSmoothedPct}
         dailyTargetMl={derived.dailyTargetMl}
-        standardBottleVolume={settings.displayBottleVolumeWater}
+        standardBottleVolume={settings.preferredBottleWaterMl}
+        hourlyRate={derived.hourlyRate}
         yellowThresholdPct={settings.yellowThresholdPct}
         redThresholdPct={settings.redThresholdPct}
         onStrictExplain={() => setShowStrictExplainer(true)}
@@ -297,97 +379,43 @@ export default function Dashboard() {
         <SmoothedExplainer
           onClose={() => setShowSmoothedExplainer(false)}
           hourlyRate={derived.hourlyRate}
-          standardBottleVolume={settings.standardBottleVolume}
+          preferredBottleWaterMl={settings.preferredBottleWaterMl}
           dailyTargetMl={derived.dailyTargetMl}
           feeds={feeds}
           now={smoothedAt}
         />
       )}
 
+      {/* Row 1: Last Feed + Next Feed — hidden while evaluating Feeding Timeline */}
 
+      {/* Row 2: Feeding Timeline — enabled for evaluation */}
+      {predictors && settings && derived && (
+        <div className="mb-4">
+          {(settings.feedingTimelineView ?? 'timeline') === 'timeline' ? (
+            <CanTakeCard
+              predictors={predictors}
+              preferredBottleWaterMl={settings.preferredBottleWaterMl}
+              feeds={feeds}
+              now={now}
+              hourlyRate={derived.hourlyRate}
+              dailyTargetMl={derived.dailyTargetMl}
+              timeFormat={settings.timeFormat}
+            />
+          ) : (
+            <FeedingTimelineCards
+              predictors={predictors}
+              preferredBottleWaterMl={settings.preferredBottleWaterMl}
+              feeds={feeds}
+              now={now}
+              hourlyRate={derived.hourlyRate}
+              dailyTargetMl={derived.dailyTargetMl}
+              timeFormat={settings.timeFormat}
+            />
+          )}
+        </div>
+      )}
 
-      {/* Bottom row: last feed + two next feed clocks */}
-      {(() => {
-        // standardNext is computed above using effectiveBottleSize
-
-        const tf = settings.timeFormat;
-        function DigClock({ ts, sub }: { ts: number | null; sub?: string }) {
-          if (!ts) return <span className="text-slate-500 text-xs">No feeds yet</span>;
-          const d = new Date(ts);
-          let h = d.getHours(), m = d.getMinutes();
-          const ampm = tf === '12h' ? (h >= 12 ? 'PM' : 'AM') : null;
-          if (tf === '12h') h = h % 12 || 12;
-          const hh = String(h).padStart(2, '0'), mm = String(m).padStart(2, '0');
-          return (
-            <>
-              <div className="font-mono font-bold text-3xl text-blue-300 tracking-widest tabular-nums leading-none">
-                {hh}<span className="text-slate-500">:</span>{mm}{ampm && <span className="text-base text-slate-400 ml-0.5">{ampm}</span>}
-              </div>
-              {sub && <div className="text-xs text-slate-500 mt-0.5">{sub}</div>}
-            </>
-          );
-        }
-
-        return (
-          <div className="grid grid-cols-3 gap-2 mb-3">
-            {/* Last feed */}
-            <div className="bg-slate-800 rounded-xl p-3">
-              <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Last feed</div>
-              {lastFeed ? (
-                <>
-                  <DigClock ts={lastFeed.timestamp} />
-                  <div className="text-xs text-slate-400 mt-1">{lastFeed.volume} ml</div>
-                </>
-              ) : <span className="text-slate-500 text-xs">None yet</span>}
-            </div>
-            {/* Next feed standard */}
-            <div className="bg-slate-800 rounded-xl p-3">
-              <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Next</div>
-              <DigClock ts={standardNext} sub={standardNext ? formatRelative(standardNext, now) : undefined} />
-              <button
-                onClick={() => setShowStandardBottlePicker(true)}
-                className="mt-1.5 w-full text-center bg-slate-700 hover:bg-slate-600 rounded-full px-2 py-0.5 text-xs text-slate-300 cursor-pointer transition-colors"
-              >⬡ {standardBottleWaterMl} ml</button>
-            </div>
-            {/* Next feed adjusted */}
-            <div className="bg-slate-800 rounded-xl p-3">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-slate-400 uppercase tracking-wide">Adjusted</span>
-                <Link href="/info/next-feed" className="w-4 h-4 rounded-full bg-slate-600 hover:bg-slate-500 text-slate-300 text-xs font-bold flex items-center justify-center leading-none">
-                  ?
-                </Link>
-              </div>
-              <DigClock ts={nextFeed} sub={nextFeed ? formatRelative(nextFeed, now) : undefined} />
-              {nextFeed && p3StandardNext && (() => {
-                // Compare P3 result against P3's own internal standard (same nextBottleWaterMl baseline)
-                // so this delta matches what the explainer shows as "time correction".
-                const d = Math.round((nextFeed - p3StandardNext) / 60_000);
-                if (d === 0) return <div className="text-xs text-slate-500 mt-0.5">same as standard</div>;
-                return <div className={`text-xs mt-0.5 font-medium ${d > 0 ? 'text-yellow-400' : 'text-blue-400'}`}>{d > 0 ? `${d}m later` : `${Math.abs(d)}m earlier`} than standard</div>;
-              })()}
-              {/* §3.5 Next bottle pill */}
-              <button
-                onClick={() => setShowNextBottlePicker(true)}
-                className="mt-1.5 w-full text-center bg-slate-700 hover:bg-slate-600 rounded-full px-2 py-0.5 text-xs text-slate-300 cursor-pointer transition-colors"
-              >⬡ {nextBottleWaterMl} ml</button>
-              {/* §3.6 Best size now hint — only show when it's actionable (not overfed at frozen snapshot) */}
-              {feeds.length > 0 && (() => {
-                const best = bestBottleSizeNow(feeds, derived.hourlyRate, derived.dailyTargetMl, now);
-                const go = () => router.push(`/log?recommend=${best.waterMl}&recStatus=${best.status}`);
-                // "Overfed" in live view right after a feed is expected and matches the P3 clock.
-                // Don't show a conflicting hint — the Adjusted clock already tells the parent when to feed.
-                if (best.status === "overfed") return null;
-                if (best.status === "capped") {
-                  return <div onClick={go} className="text-xs text-slate-400 cursor-pointer underline mt-1">Feed now → {best.waterMl} ml water ({Math.round(best.milkMl)} ml milk, large deficit)</div>;
-                }
-                return <div onClick={go} className="text-xs text-slate-400 cursor-pointer underline mt-1">Feed now → {best.waterMl} ml water ({Math.round(best.milkMl)} ml milk)</div>;
-              })()}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Summary row */}
+      {/* Summary stats row */}
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-slate-800 rounded-lg p-3 text-center">
           <div className="text-lg font-bold text-slate-100">{feeds.length}</div>

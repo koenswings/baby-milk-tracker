@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFeeds, writeFeeds, readSettings, migrateTargetStamps } from "@/lib/server-store";
+import { readFeeds, writeFeeds } from "@/lib/server-store";
 import { Feed } from "@/types";
 
 export async function GET() {
-  const s = readSettings();
-  migrateTargetStamps(s.weightKg * s.mlPerKgPerDay);
   return NextResponse.json(readFeeds());
 }
 

@@ -67,12 +67,10 @@ function LogPageInner() {
 
     setSaving(true);
     const timestamp = new Date(datetime).getTime();
-    const targetMlPerDay = settings ? Math.round(settings.weightKg * settings.mlPerKgPerDay) : undefined;
     await addFeed({
       id: generateId(),
       timestamp,
       volume: vol,
-      ...(targetMlPerDay !== undefined ? { targetMlPerDay } : {}),
     });
     setSaving(false);
     router.push("/");

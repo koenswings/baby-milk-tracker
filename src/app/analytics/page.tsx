@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { getFeeds, getSettings, exportCsv } from "@/lib/store";
 import {
-  dailyTotals,
   avgIntervalHours,
   consistencyScore,
   periodTotal,
@@ -14,6 +13,7 @@ import { useRef } from "react";
 import { buildTrendPoints, drawTrendGraph } from "@/lib/trendGraph";
 import { WeightEntry } from "@/lib/weights";
 import { getWeights } from "@/lib/store";
+import { whoReferenceCurves, estimateZChannel } from "@/lib/whoGrowth";
 import BottomNav from "@/components/BottomNav";
 
 function TrendCanvas({ feeds, weights, days, dailyTargetMl, mlPerKgPerDay, fallbackWeight, yellowPct, redPct }: {
@@ -31,11 +31,16 @@ function TrendCanvas({ feeds, weights, days, dailyTargetMl, mlPerKgPerDay, fallb
     drawTrendGraph(ctx, pts, now, windowMs, dailyTargetMl, yellowPct, redPct,
       { showLegend: true, dayLabelFormat: days > 7 ? 'date' : 'short' });
   }, [feeds, weights, days, dailyTargetMl, mlPerKgPerDay, fallbackWeight, yellowPct, redPct]);
-  return <canvas ref={canvasRef} width={560} height={220} className="w-full rounded-lg" style={{ imageRendering: 'crisp-edges' }} />;
+  return <canvas ref={canvasRef} width={560} height={220} className="w-full" style={{ imageRendering: 'crisp-edges', display: 'block' }} />;
 }
 
-function WeightChart({ weights }: { weights: WeightEntry[] }) {
+function WeightChart({ weights, dateOfBirthMs, sex }: {
+  weights: WeightEntry[];
+  dateOfBirthMs?: number;
+  sex?: 'M' | 'F';
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const showWho = !!(dateOfBirthMs && sex && weights.length >= 1);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -44,14 +49,35 @@ function WeightChart({ weights }: { weights: WeightEntry[] }) {
     if (!ctx) return;
 
     const W = canvas.width, H = canvas.height;
-    const PAD_L = 52, PAD_R = 16, PAD_T = 30, PAD_B = 44;
+    const PAD_L = 40, PAD_R = showWho ? 32 : 16, PAD_T = 26, PAD_B = 44;
     const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
 
     const sorted = [...weights].sort((a, b) => a.timestamp - b.timestamp);
-    const T_START = sorted[0].timestamp;
-    const T_END = sorted[sorted.length - 1].timestamp + 86_400_000; // +1 day
-    const wMin = Math.min(...sorted.map(w => w.weightKg)) - 0.1;
-    const wMax = Math.max(...sorted.map(w => w.weightKg)) + 0.1;
+
+    let T_START: number, T_END: number;
+    if (showWho && dateOfBirthMs) {
+      T_START = dateOfBirthMs;
+      T_END = Date.now() + 30 * 86_400_000;
+    } else {
+      T_START = sorted[0].timestamp;
+      T_END = sorted[sorted.length - 1].timestamp + 86_400_000;
+    }
+
+    // Compute y range
+    let wMin = Math.min(...sorted.map(w => w.weightKg)) - 0.1;
+    let wMax = Math.max(...sorted.map(w => w.weightKg)) + 0.1;
+
+    // Expand y range to cover WHO curves when shown
+    if (showWho && dateOfBirthMs && sex) {
+      const ageMonthsNow = (Date.now() - dateOfBirthMs) / (365.25 / 12 * 86_400_000);
+      const curves = whoReferenceCurves(sex, 0, Math.min(24, Math.ceil(ageMonthsNow) + 1));
+      for (const curve of curves) {
+        for (const pt of curve.points) {
+          wMin = Math.min(wMin, pt.weightKg - 0.1);
+          wMax = Math.max(wMax, pt.weightKg + 0.1);
+        }
+      }
+    }
 
     const tx = (t: number) => PAD_L + ((t - T_START) / (T_END - T_START)) * plotW;
     const ty = (w: number) => PAD_T + (1 - (w - wMin) / (wMax - wMin)) * plotH;
@@ -66,18 +92,74 @@ function WeightChart({ weights }: { weights: WeightEntry[] }) {
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + plotW, y); ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = '#475569'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
-      ctx.fillText(w.toFixed(2), PAD_L - 4, y + 3);
+      ctx.fillText(w.toFixed(1), PAD_L - 4, y + 3);
     }
 
-    // Month labels
-    const range = T_END - T_START;
-    const tickMs = range > 30 * 86_400_000 ? 7 * 86_400_000 : 86_400_000;
-    for (let t = Math.ceil(T_START / tickMs) * tickMs; t <= T_END; t += tickMs) {
-      const x = tx(t);
-      ctx.strokeStyle = '#ffffff10'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x, PAD_T); ctx.lineTo(x, PAD_T + plotH); ctx.stroke();
-      ctx.fillStyle = '#475569'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' }), x, PAD_T + plotH + 14);
+    // X-axis labels
+    if (showWho && dateOfBirthMs) {
+      // Age in months labels
+      const ageMonthsEnd = Math.min(24, (T_END - dateOfBirthMs) / (365.25 / 12 * 86_400_000));
+      const step = ageMonthsEnd > 12 ? 3 : 1;
+      for (let m = 0; m <= Math.ceil(ageMonthsEnd); m += step) {
+        const t = dateOfBirthMs + m * (365.25 / 12 * 86_400_000);
+        const x = tx(t);
+        if (x < PAD_L || x > PAD_L + plotW) continue;
+        ctx.strokeStyle = '#ffffff10'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, PAD_T); ctx.lineTo(x, PAD_T + plotH); ctx.stroke();
+        ctx.fillStyle = '#475569'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`${m}m`, x, PAD_T + plotH + 14);
+      }
+    } else {
+      // Calendar date labels
+      const range = T_END - T_START;
+      const tickMs = range > 30 * 86_400_000 ? 7 * 86_400_000 : 86_400_000;
+      for (let t = Math.ceil(T_START / tickMs) * tickMs; t <= T_END; t += tickMs) {
+        const x = tx(t);
+        ctx.strokeStyle = '#ffffff10'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, PAD_T); ctx.lineTo(x, PAD_T + plotH); ctx.stroke();
+        ctx.fillStyle = '#475569'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' }), x, PAD_T + plotH + 14);
+      }
+    }
+
+    // WHO reference curves (draw before baby's curve so baby is on top)
+    if (showWho && dateOfBirthMs && sex) {
+      const ageMonthsNow = (Date.now() - dateOfBirthMs) / (365.25 / 12 * 86_400_000);
+      const curves = whoReferenceCurves(sex, 0, Math.min(24, Math.ceil(ageMonthsNow) + 1));
+      const msPerMonth = 365.25 / 12 * 86_400_000;
+
+      const zColors: Record<string, string> = {
+        '-2': '#ef4444', '-1': '#fb923c', '0': '#94a3b8', '1': '#fb923c', '2': '#ef4444'
+      };
+      const zLabels: Record<string, string> = {
+        '-2': 'Z-2', '-1': 'Z-1', '0': 'Z 0', '1': 'Z+1', '2': 'Z+2'
+      };
+
+      for (const curve of curves) {
+        const key = String(curve.z);
+        ctx.strokeStyle = zColors[key] ?? '#666';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        curve.points.forEach((pt, i) => {
+          const x = tx(dateOfBirthMs + pt.ageMonths * msPerMonth);
+          const y = ty(pt.weightKg);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Label at right end
+        const last = curve.points[curve.points.length - 1];
+        ctx.fillStyle = zColors[key] ?? '#666';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(
+          zLabels[key] ?? `Z${curve.z}`,
+          tx(dateOfBirthMs + last.ageMonths * msPerMonth) + 2,
+          ty(last.weightKg) + 3
+        );
+      }
     }
 
     // Smooth curve (Catmull-Rom)
@@ -117,10 +199,8 @@ function WeightChart({ weights }: { weights: WeightEntry[] }) {
     ctx.stroke();
 
     ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('Weight over time', W / 2, 20);
-    ctx.fillStyle = '#64748b'; ctx.font = '10px sans-serif';
-    ctx.fillText('kg', PAD_L - 36, PAD_T + plotH / 2);
-  }, [weights]);
+    ctx.fillText('Weight over time', W / 2, 16);
+  }, [weights, dateOfBirthMs, sex, showWho]);
 
   if (weights.length === 0) return (
     <div className="bg-slate-800 rounded-xl p-8 text-center text-slate-400 mb-4">No weight entries yet. Use the ⚖️ button on the dashboard.</div>
@@ -132,7 +212,12 @@ function WeightChart({ weights }: { weights: WeightEntry[] }) {
   const oldest = sorted2[0];
   const gainKg = sorted2.length >= 2 ? latest.weightKg - oldest.weightKg : null;
   const daySpan = sorted2.length >= 2 ? (latest.timestamp - oldest.timestamp) / 86_400_000 : null;
-  const gainPerWeek = gainKg !== null && daySpan && daySpan > 0 ? (gainKg / daySpan * 7) : null;
+  const gainPerWeek = gainKg !== null && daySpan && daySpan > 0 ? (gainKg / daySpan * 7 * 1000) : null; // g/week
+
+  // WHO z-score
+  const currentZ = showWho && dateOfBirthMs && sex
+    ? estimateZChannel(sorted2, dateOfBirthMs, sex)
+    : null;
 
   return (
     <div className="mb-4">
@@ -150,16 +235,41 @@ function WeightChart({ weights }: { weights: WeightEntry[] }) {
         </div>
         <div className="bg-slate-800 rounded-xl p-3 text-center">
           <div className={`text-xl font-bold ${gainPerWeek === null ? 'text-slate-500' : gainPerWeek >= 0 ? 'text-green-400' : 'text-yellow-400'}`}>
-            {gainPerWeek === null ? '—' : `${gainPerWeek >= 0 ? '+' : ''}${gainPerWeek.toFixed(0)} g/w`}
+            {gainPerWeek === null ? '—' : `${gainPerWeek >= 0 ? '+' : ''}${Math.round(gainPerWeek)} g/w`}
           </div>
           <div className="text-xs text-slate-400">Rate</div>
         </div>
       </div>
 
-      {/* Chart */}
-      <div className="bg-slate-800 rounded-xl p-4 mb-3">
+      {/* Chart — canvas fills edge-to-edge */}
+      <div className="bg-slate-800 rounded-xl overflow-hidden mb-3">
         <canvas ref={canvasRef} width={560} height={240}
-          className="w-full rounded-lg" style={{ imageRendering: 'crisp-edges' }} />
+          className="w-full" style={{ imageRendering: 'crisp-edges', display: 'block' }} />
+        {showWho && currentZ !== null && (
+          <div className="px-3 pb-3 pt-2 space-y-2">
+            {/* Baby z-score */}
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-6 h-0.5 bg-green-400 rounded" />
+              <span className="text-xs text-slate-400">Baby —</span>
+              <span className={`font-bold text-sm ${
+                Math.abs(currentZ) <= 1 ? 'text-green-400' :
+                Math.abs(currentZ) <= 2 ? 'text-yellow-400' : 'text-red-400'
+              }`}>Z {currentZ >= 0 ? '+' : ''}{currentZ.toFixed(2)}</span>
+              <span className="text-xs text-slate-500">
+                {Math.abs(currentZ) <= 1 ? 'normal' : Math.abs(currentZ) <= 2 ? 'watch' : 'consult doctor'}
+              </span>
+            </div>
+            {/* WHO reference legend */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {([[-2,'#ef4444'],[-1,'#fb923c'],[0,'#94a3b8'],[1,'#fb923c'],[2,'#ef4444']] as [number,string][]).map(([z, col]) => (
+                <div key={z} className="flex items-center gap-1">
+                  <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={col} strokeWidth="1.5" strokeDasharray="4 3"/></svg>
+                  <span className="text-xs" style={{ color: col }}>Z{z >= 0 ? '+' : ''}{z} WHO</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Export — same style as feeds export */}
@@ -236,13 +346,45 @@ export default function AnalyticsPage() {
       </div>
 
       {analyticsTab === 'weight' && (
-        <WeightChart weights={weights} />
+        <WeightChart weights={weights} dateOfBirthMs={settings.dateOfBirthMs} sex={settings.sex} />
       )}
 
       {analyticsTab === 'intake' && <>
-      {/* Trend chart */}
-      <div className="bg-slate-800 rounded-xl p-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
+      {/* Stats cards — 3 across, before the graph */}
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="bg-slate-800 rounded-xl p-3 text-center">
+          <div className="text-xl font-bold text-slate-100">
+            {avgInterval !== null ? `${avgInterval.toFixed(1)}h` : '—'}
+          </div>
+          <div className="text-xs text-slate-400">Avg interval</div>
+          <div className="text-xs text-slate-600">ideal {derived.idealIntervalHours.toFixed(1)}h</div>
+        </div>
+        <div className="bg-slate-800 rounded-xl p-3 text-center relative">
+          <div className={`text-xl font-bold ${
+            consistency === null ? 'text-slate-100' :
+            consistency < 0.5 ? 'text-green-400' :
+            consistency < 1.5 ? 'text-yellow-400' : 'text-red-400'
+          }`}>
+            {consistency !== null ? `${consistency.toFixed(2)}h` : '—'}
+          </div>
+          <div className="text-xs text-slate-400">Consistency</div>
+          <button onClick={() => setShowConsistencyInfo(true)}
+            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-slate-600 text-slate-300 text-xs font-bold flex items-center justify-center leading-none">
+            ?
+          </button>
+        </div>
+        <div className="bg-slate-800 rounded-xl p-3 text-center">
+          <div className={`text-xl font-bold ${avgSurplusMl < -5 ? 'text-blue-400' : avgSurplusMl > 5 ? 'text-yellow-400' : 'text-green-400'}`}>
+            {Math.round(-avgSurplusMl) === 0 ? '0' : avgSurplusMl < 0 ? '+' : '−'}{Math.abs(Math.round(avgSurplusMl))} ml
+          </div>
+          <div className="text-xs text-slate-400">Avg deficit</div>
+          <div className="text-xs text-slate-600">{avgSurplusMl > 5 ? 'overfed' : avgSurplusMl < -5 ? 'underfed' : 'on target'} · {days}d</div>
+        </div>
+      </div>
+
+      {/* Trend chart — canvas fills edge-to-edge inside card */}
+      <div className="bg-slate-800 rounded-xl overflow-hidden mb-4">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <h2 className="text-sm font-semibold text-slate-300">Energy surplus / deficit</h2>
           <div className="flex gap-1">
             {[3,7,30].map(d => (
@@ -257,50 +399,9 @@ export default function AnalyticsPage() {
           dailyTargetMl={derived.dailyTargetMl}
           mlPerKgPerDay={settings.mlPerKgPerDay} fallbackWeight={settings.weightKg}
           yellowPct={settings.yellowThresholdPct} redPct={settings.redThresholdPct} />
-        <p className="text-xs text-slate-500 mt-1">
-          Each dot = smoothed intake at time of bottle. Curve interpolated through dots.
-          Green zone = ±{settings.yellowThresholdPct}% of target.
+        <p className="text-xs text-slate-500 px-4 pb-3 pt-1">
+          Each dot = smoothed intake at time of bottle. Green zone = ±{settings.yellowThresholdPct}%.
         </p>
-      </div>
-
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="bg-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-400 mb-1">Avg interval</div>
-          <div className="text-xl font-bold text-slate-100">
-            {avgInterval !== null ? `${avgInterval.toFixed(1)}h` : "—"}
-          </div>
-          <div className="text-xs text-slate-500">ideal: {derived.idealIntervalHours.toFixed(1)}h</div>
-        </div>
-        <div className="bg-slate-800 rounded-xl p-4 relative">
-          <div className="text-xs text-slate-400 mb-1">Consistency (σ)</div>
-          <div className={`text-xl font-bold ${
-            consistency === null ? "text-slate-100" :
-            consistency < 0.5 ? "text-green-400" :
-            consistency < 1.5 ? "text-yellow-400" : "text-red-400"
-          }`}>
-            {consistency !== null ? `${consistency.toFixed(2)}h` : "—"}
-          </div>
-          <button
-            onClick={() => setShowConsistencyInfo(true)}
-            className="absolute top-2 right-2 w-5 h-5 rounded-full bg-slate-600 hover:bg-slate-500 text-slate-300 text-xs font-bold flex items-center justify-center"
-          >
-            ?
-          </button>
-          <div className="text-xs text-slate-500">lower = more consistent</div>
-        </div>
-        <div className="bg-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-400 mb-1">Avg {days}d surplus</div>
-          <div className={`text-xl font-bold ${avgSurplusMl > 5 ? 'text-yellow-400' : avgSurplusMl < -5 ? 'text-blue-400' : 'text-green-400'}`}>
-            {avgSurplusMl >= 0 ? '+' : ''}{Math.round(avgSurplusMl)} ml
-          </div>
-          <div className="text-xs text-slate-500">{avgSurplusMl > 5 ? 'overfed on avg' : avgSurplusMl < -5 ? 'underfed on avg' : 'on target'}</div>
-        </div>
-        <div className="bg-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-400 mb-1">Total feeds</div>
-          <div className="text-xl font-bold text-slate-100">{feeds.length}</div>
-          <div className="text-xs text-slate-500">all time</div>
-        </div>
       </div>
 
       {/* Period totals */}

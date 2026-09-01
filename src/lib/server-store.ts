@@ -12,14 +12,10 @@ const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const DEFAULT_SETTINGS: Settings = {
   weightKg: 6.27,
   mlPerKgPerDay: 150,
-  standardBottleVolume: 90,
-  displayBottleVolumeWater: 90,
+  preferredBottleWaterMl: 90,
   yellowThresholdPct: 5,
   redThresholdPct: 10,
   timeFormat: '24h' as const,
-  maxCorrectionPct: 25,
-  useTargetAwarePredictor: true,
-  nextBottleWaterMl: 90,
 };
 
 function ensureDir() {
@@ -58,12 +54,4 @@ export function writeSettings(settings: Settings): void {
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings), "utf8");
 }
 
-export function migrateTargetStamps(currentTargetMl: number): void {
-  const feeds = readFeeds();
-  const needsMigration = feeds.some((f) => f.targetMlPerDay === undefined);
-  if (!needsMigration) return;
-  const migrated = feeds.map((f) =>
-    f.targetMlPerDay !== undefined ? f : { ...f, targetMlPerDay: currentTargetMl }
-  );
-  writeFeeds(migrated);
-}
+

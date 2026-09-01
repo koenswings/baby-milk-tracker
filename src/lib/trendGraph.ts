@@ -91,27 +91,28 @@ export function drawTrendGraph(
   ctx.fillStyle = '#1e293b';
   ctx.fillRect(0, 0, W, H);
 
+  // Zones span full canvas width so colour bleeds to card edges
   // Red zone top (overfed >redPct%)
   ctx.fillStyle = 'rgba(248,113,113,0.18)';
-  ctx.fillRect(PAD_L, PAD_T, plotW, tyRedTop - PAD_T);
+  ctx.fillRect(0, PAD_T, W, tyRedTop - PAD_T);
 
   // Yellow/orange zone (yellowPct < x < redPct, overfed)
   ctx.fillStyle = 'rgba(251,191,36,0.12)';
-  ctx.fillRect(PAD_L, tyRedTop, plotW, tyGreenTop - tyRedTop);
+  ctx.fillRect(0, tyRedTop, W, tyGreenTop - tyRedTop);
 
   // Green zone (±yellowPct)
   ctx.fillStyle = 'rgba(74,222,128,0.18)';
-  ctx.fillRect(PAD_L, tyGreenTop, plotW, tyGreenBot - tyGreenTop);
+  ctx.fillRect(0, tyGreenTop, W, tyGreenBot - tyGreenTop);
 
   // Yellow/blue zone (yellowPct < x < redPct, underfed) — symmetric height
-  const yellowZoneH = tyGreenTop - tyRedTop; // same height as top yellow
+  const yellowZoneH = tyGreenTop - tyRedTop;
   ctx.fillStyle = 'rgba(96,165,250,0.12)';
-  ctx.fillRect(PAD_L, tyGreenBot, plotW, yellowZoneH);
+  ctx.fillRect(0, tyGreenBot, W, yellowZoneH);
 
   // Blue zone (underfed >redPct%) — same height as top red zone
   const redZoneH = tyRedTop - PAD_T;
   ctx.fillStyle = 'rgba(96,165,250,0.22)';
-  ctx.fillRect(PAD_L, tyGreenBot + yellowZoneH, plotW, redZoneH);
+  ctx.fillRect(0, tyGreenBot + yellowZoneH, W, redZoneH);
 
   // Zone boundary lines
   ctx.setLineDash([4, 3]);

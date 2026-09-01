@@ -1,4 +1,5 @@
-import { Feed, Settings, DerivedSettings, FeedWithCredit, NextFeedResult } from "@/types";
+import { Feed, Settings, DerivedSettings, FeedWithCredit, NextFeedResult, PredictorResult } from "@/types";
+import { WeightEntry, dailyTargetAtTime } from "@/lib/weights";
 
 /**
  * Water → prepared formula conversion.
@@ -84,7 +85,7 @@ export const WATER_TO_MILK_RATIO = 100 / 90; // 90ml water → 100ml formula (mo
 export function deriveSettings(settings: Settings): DerivedSettings {
   const dailyTargetMl = settings.weightKg * settings.mlPerKgPerDay; // milk ml
   const hourlyRate = dailyTargetMl / 24;                             // milk ml/hour
-  const milkPerBottle = waterToMilk(settings.standardBottleVolume);  // milk ml per bottle
+  const milkPerBottle = waterToMilk(settings.preferredBottleWaterMl); // milk ml per bottle
   const idealIntervalHours = milkPerBottle / hourlyRate;
   return { dailyTargetMl, hourlyRate, idealIntervalHours, milkPerBottle };
 }
@@ -205,22 +206,19 @@ function findTargetAwareNext(
   return { timestamp: Math.floor((lo + hi) / 2), capped: false };
 }
 
-/**
- * Next bottle predictor (design doc: next-session-predictor-design.md)
- *
- * Standard: standardNext = lastFeed.timestamp + waterToMilk(lastFeed.volume) / hourlyRate
- *
- * Predictor 2 (Formula S): adjustedNext = standard + clamp(surplus/hourlyRate, ±max)
- * Predictor 3 (T*, default): binary search for T* where smoothed(T*) = target − bottle
- *
- * settings.useTargetAwarePredictor controls which is used.
- */
+/** @deprecated Use computePredictors instead. Kept for backward compatibility. */
+interface LegacyPredictorSettings {
+  maxCorrectionPct: number;
+  useTargetAwarePredictor: boolean;
+  nextBottleWaterMl: number;
+}
+
 export function nextFeedTime(
   feeds: Feed[],
   hourlyRate: number,
   smoothedTotal: number,
   dailyTargetMl: number,
-  settings: Pick<Settings, 'maxCorrectionPct' | 'useTargetAwarePredictor' | 'nextBottleWaterMl'>
+  settings: LegacyPredictorSettings
 ): NextFeedResult | null {
   if (feeds.length === 0) return null;
 
@@ -319,12 +317,12 @@ function localDateStr(d: Date = new Date()): string {
 export function dailyTotals(
   feeds: Feed[],
   days: number,
-  currentTargetMl: number
+  currentTargetMl: number,
+  weights: WeightEntry[] = [],
+  mlPerKgPerDay: number = 150
 ): Array<{ date: string; totalMl: number; count: number; targetMl: number }> {
   const now = new Date();
   const result: Array<{ date: string; totalMl: number; count: number; targetMl: number }> = [];
-
-  const sortedFeeds = [...feeds].sort((a, b) => a.timestamp - b.timestamp);
 
   for (let d = days - 1; d >= 0; d--) {
     const day = new Date(now);
@@ -335,11 +333,11 @@ export function dailyTotals(
 
     const dayFeeds = feeds.filter((f) => f.timestamp >= start && f.timestamp < end);
 
-    const feedsUpToEndOfDay = sortedFeeds.filter(
-      (f) => f.timestamp < end && f.targetMlPerDay !== undefined
-    );
-    const lastStampedFeed = feedsUpToEndOfDay[feedsUpToEndOfDay.length - 1];
-    const targetMl = lastStampedFeed ? lastStampedFeed.targetMlPerDay! : currentTargetMl;
+    // Derive the target at end-of-day from weight history (if available),
+    // falling back to the current target. This replaces the old targetMlPerDay stamp.
+    const targetMl = weights.length > 0
+      ? dailyTargetAtTime(end - 1, weights, mlPerKgPerDay, currentTargetMl)
+      : currentTargetMl;
 
     result.push({
       date: dateStr,
@@ -379,4 +377,268 @@ export function statusHexColor(
   if (diff <= yellowThresholdPct) return '#4ade80'; // green
   if (diff <= redThresholdPct) return '#facc15';    // yellow
   return '#f87171';                                  // red
+}
+
+// ─── v3 Predictor functions ───────────────────────────────────────────────────
+
+export const STOMACH_K = 0.6931; // ln(2), gastric emptying decay constant (t½ = 60min)
+
+/**
+ * Stomach capacity in milk ml — steady-state peak load reached in a perfect
+ * preferred-bottle cycle (§4.3 of predictor design v3).
+ *
+ *   SI  = preferredBottleMilkMl / hourlyRate
+ *   cap = preferredBottleMilkMl / (1 − e^(−k × SI))
+ *
+ * This is the tightest physically grounded bound: it equals the highest stomach
+ * load that occurs in a perfect feeding cycle, so no compensation strategy ever
+ * stretches the stomach further than a normal preferred feed already implies.
+ */
+export function stomachCapMilk(preferredBottleWaterMl: number, hourlyRate: number): number {
+  const m0 = waterToMilk(preferredBottleWaterMl);
+  const SI = m0 / hourlyRate;  // standard interval in hours
+  const denom = 1 - Math.exp(-STOMACH_K * SI);
+  if (denom <= 0) return m0 * 4; // safety fallback (should not happen for realistic SI)
+  return m0 / denom;
+}
+
+/** Total undigested milk across all recent feeds at time atMs (exponential model, t½=60min) */
+export function stomachLoad(feeds: Feed[], atMs: number): number {
+  const atHours = atMs / 3_600_000;
+  return feeds.reduce((sum, f) => {
+    const ageHours = atHours - f.timestamp / 3_600_000;
+    if (ageHours < 0 || ageHours > 7) return sum;
+    return sum + waterToMilk(f.volume) * Math.exp(-STOMACH_K * ageHours);
+  }, 0);
+}
+
+/** Minimum wait time (ms) before giving preferredBottleMilkMl without exceeding stomach cap */
+export function stomachFloorMs(
+  feeds: Feed[],
+  preferredBottleWaterMl: number,
+  lastFeedMs: number,
+  hourlyRate: number
+): number {
+  const m_new = waterToMilk(preferredBottleWaterMl);
+  const cap = stomachCapMilk(preferredBottleWaterMl, hourlyRate);
+  const loadNow = stomachLoad(feeds, lastFeedMs);
+  if (loadNow + m_new <= cap) return 0;
+  const lastFeed = feeds.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
+  const m_last = waterToMilk(lastFeed.volume);
+  const remainder = cap - m_new;
+  if (remainder <= 0) return 0;
+  if (m_last <= remainder) return 0;
+  const dtHours = Math.log(m_last / remainder) / STOMACH_K;
+  return dtHours * 3_600_000;
+}
+
+/**
+ * For any target bottle size, compute the earliest time (ms since epoch) at which
+ * the stomach load will have dropped enough to fit that bottle without exceeding
+ * the stomach capacity (= one size above preferred).
+ *
+ * Returns `atMs` (i.e. 0 delay) if it already fits now.
+ */
+export function stomachReadyAtMs(
+  feeds: Feed[],
+  bottleWaterMl: number,
+  preferredBottleWaterMl: number,
+  atMs: number,          // reference time (typically Date.now())
+  hourlyRate: number
+): number {
+  const m_new = waterToMilk(bottleWaterMl);
+  // The stomach has one physical capacity, determined by the preferred bottle size.
+  // Add 10% buffer so that a bottle at exactly the nominal cap doesn't require
+  // near-zero stomach load — the cap is already conservative.
+  const cap = stomachCapMilk(preferredBottleWaterMl, hourlyRate) * 1.1;
+  const loadNow = stomachLoad(feeds, atMs);
+  if (loadNow + m_new <= cap) return atMs; // fits now
+
+  // Solve: loadNow * exp(-k * dt) + m_new <= cap
+  // => dt = -ln((cap - m_new) / loadNow) / k
+  const remainder = cap - m_new;
+  if (loadNow <= 0) return atMs;
+  if (remainder <= 0) {
+    // Bottle at or above cap — need load to decay to near-zero
+    const NEAR_ZERO_ML = 5;
+    const dtHours = -Math.log(NEAR_ZERO_ML / loadNow) / STOMACH_K;
+    return atMs + Math.max(0, dtHours) * 3_600_000;
+  }
+  const dtHours = -Math.log(remainder / loadNow) / STOMACH_K;
+  if (dtHours <= 0) return atMs;
+  return atMs + dtHours * 3_600_000;
+}
+
+/**
+ * When has the 24h intake decayed enough that adding this bottle lands on target?
+ * Returns now if already underfed (no waiting needed).
+ * Capped at 48h.
+ */
+export function intakeReadyAtMs(
+  feeds: Feed[],
+  bottleWaterMl: number,
+  hourlyRate: number,
+  dailyTargetMl: number,
+  now: number
+): number {
+  const milkMl = waterToMilk(bottleWaterMl);
+  const targetBefore = dailyTargetMl - milkMl;
+  const currentSmoothed = smoothedAtTime(feeds, hourlyRate, now);
+  // Small tolerance (1 ml) to absorb floating-point drift between the status display
+  // (frozen at lastFeed.timestamp) and the live smoothed total (computed at now).
+  // Without this, logging 120 ml can show "100%" while the predictor still says
+  // "wait 30 min" because currentSmoothed = 1080.0001 ml > targetBefore = 1080.0 ml.
+  const TOLERANCE_ML = 1;
+  if (currentSmoothed <= targetBefore + TOLERANCE_ML) return now; // underfed or on-target: give now
+
+  const T_max = now + 48 * 3_600_000;
+  if (smoothedAtTime(feeds, hourlyRate, T_max) > targetBefore) return T_max; // still overfed at 48h
+
+  let lo = now, hi = T_max;
+  for (let i = 0; i < 40; i++) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (smoothedAtTime(feeds, hourlyRate, mid) > targetBefore) lo = mid;
+    else hi = mid;
+    if (hi - lo < 60_000) break;
+  }
+  return Math.floor((lo + hi) / 2);
+}
+
+/**
+ * Returns a progression of bottle sizes the baby SHOULD take, combining both
+ * the stomach constraint and the intake constraint:
+ *
+ *   readyAt(X) = max(stomachReadyAtMs(X), intakeReadyAtMs(X))
+ *
+ * Noise-cutting rule: show only from the LARGEST size available now upward.
+ * If nothing is available now, show all sizes (all in the future).
+ * Sizes capped at preferred+1.
+ */
+export function canTakeProgression(
+  feeds: Feed[],
+  preferredBottleWaterMl: number,
+  now: number,
+  hourlyRate: number,
+  dailyTargetMl: number
+): Array<{ waterMl: number; milkMl: number; readyAtMs: number; fitsNow: boolean; isPreferred: boolean }> {
+  const allSizes = FORMULA_TABLE.map(e => e.water);
+  const prefIdx = allSizes.indexOf(preferredBottleWaterMl);
+  // Include preferred + one size above (recovery bottle). §7.2 ceiling is preferred+1.
+  const maxIdx = prefIdx >= 0 ? Math.min(prefIdx + 1, allSizes.length - 1) : allSizes.length - 1;
+  const candidateSizes = allSizes.slice(0, maxIdx + 1);
+
+  const entries = candidateSizes.map(w => {
+    const milkMl = Math.round(waterToMilk(w));
+    // Unified formula — no special-casing. Every size obeys the same rule:
+    //   readyAt(X) = max(stomachReadyAt(X), intakeReadyAt(X))
+    // stomachReadyAt: when has the stomach emptied enough to hold X?
+    // intakeReadyAt:  when has 24h intake decayed enough that giving X lands on target?
+    // Larger bottles have a higher intakeReadyAt threshold (need more intake decay)
+    // AND a later stomachReadyAt (take more room). Both constraints naturally
+    // sequence larger bottles later — no special cases needed.
+    const sReady = stomachReadyAtMs(feeds, w, preferredBottleWaterMl, now, hourlyRate);
+    const iReady = intakeReadyAtMs(feeds, w, hourlyRate, dailyTargetMl, now);
+    const readyAtMs = Math.max(sReady, iReady);
+    const fitsNow = readyAtMs <= now + 30_000;
+    return { waterMl: w, milkMl, readyAtMs, fitsNow, isPreferred: w === preferredBottleWaterMl };
+  });
+
+  // Find the largest size available now
+  const availableNow = entries.filter(e => e.fitsNow);
+  const startWater = availableNow.length > 0
+    ? availableNow[availableNow.length - 1].waterMl  // largest available now
+    : entries[0].waterMl;                             // nothing available — show all
+
+  return entries.filter(e => e.waterMl >= startWater);
+}
+
+/** Compute both predictors (A and B) from feeds + settings */
+export function computePredictors(
+  feeds: Feed[],
+  hourlyRate: number,
+  dailyTargetMl: number,
+  preferredBottleWaterMl: number
+): PredictorResult | null {
+  if (feeds.length === 0) return null;
+  const lastFeed = feeds.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
+  const preferredBottleMilkMl = waterToMilk(preferredBottleWaterMl);
+  const standardIntervalMs = (preferredBottleMilkMl / hourlyRate) * 3_600_000;
+  const capMilk = stomachCapMilk(preferredBottleWaterMl, hourlyRate);
+
+  // --- Predictor A ---
+  // At T_A (the standard interval), the stomach has had ample time to process the last
+  // feed. We cap at stomachCapMilk directly rather than subtracting residual stomach load:
+  // the exponential model predicts ~20% residual at SI, which would leave only ~13ml of
+  // headroom above the preferred bottle — far too restrictive for deficit recovery.
+  const T_A = lastFeed.timestamp + standardIntervalMs;
+  const intakeAtTA = smoothedAtTime(feeds, hourlyRate, T_A);
+  const rawVolumeMilk = (dailyTargetMl + preferredBottleMilkMl) - intakeAtTA;
+  const volumeCapMilk = capMilk; // full cap available at standard interval
+
+  let predictorAVolumeMilk: number;
+  let predictorACapped = false;
+  let predictorASurplus = false;
+  let predictorACapNote: string | undefined;
+
+  if (rawVolumeMilk <= 0) {
+    predictorASurplus = true;
+    predictorAVolumeMilk = 0;
+  } else if (rawVolumeMilk > volumeCapMilk) {
+    predictorACapped = true;
+    predictorAVolumeMilk = volumeCapMilk;
+    predictorACapNote = 'Gap too large for one bottle';
+  } else {
+    predictorAVolumeMilk = rawVolumeMilk;
+  }
+
+  // Apply minimum floor of 30ml water
+  const predictorAVolumeWater = predictorASurplus
+    ? 0
+    : Math.max(30, Math.round(milkToWater(predictorAVolumeMilk)));
+  const finalVolumeMilk = predictorASurplus ? 0 : waterToMilk(predictorAVolumeWater);
+
+  // --- Predictor B ---
+  const floorMs = stomachFloorMs(feeds, preferredBottleWaterMl, lastFeed.timestamp, hourlyRate);
+  const T_floor = lastFeed.timestamp + floorMs;
+  const stomachLimited = floorMs > 0;
+
+  const intakeAtFloor = smoothedAtTime(feeds, hourlyRate, T_floor);
+  let T_B: number;
+  let predictorBCapped = false;
+
+  const T_max = lastFeed.timestamp + 48 * 3_600_000;
+
+  if (intakeAtFloor <= dailyTargetMl) {
+    T_B = T_floor;
+  } else {
+    const intakeAtMax = smoothedAtTime(feeds, hourlyRate, T_max);
+    if (intakeAtMax > dailyTargetMl) {
+      T_B = T_max;
+      predictorBCapped = true;
+    } else {
+      let lo = T_floor, hi = T_max;
+      for (let i = 0; i < 40; i++) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (smoothedAtTime(feeds, hourlyRate, mid) > dailyTargetMl) lo = mid;
+        else hi = mid;
+        if (hi - lo < 60_000) break;
+      }
+      T_B = Math.floor((lo + hi) / 2);
+    }
+  }
+
+  return {
+    predictorATimestamp: T_A,
+    predictorAVolumeMilk: finalVolumeMilk,
+    predictorAVolumeWater,
+    predictorACapped,
+    predictorASurplus,
+    predictorACapNote,
+    predictorBTimestamp: T_B,
+    predictorBStomachLimited: stomachLimited,
+    predictorBCapped,
+    predictorBFloorTimestamp: T_floor,
+    standardIntervalMs,
+    stomachCapMilk: capMilk,
+  };
 }
