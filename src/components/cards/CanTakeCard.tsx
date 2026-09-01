@@ -6,7 +6,7 @@ import { Feed } from "@/types";
 import { PredictorResult } from "@/types";
 import {
   canTakeProgression, waterToMilk, FORMULA_TABLE,
-  STOMACH_K, smoothedAtTime,
+  STOMACH_K, smoothedAtTime, stomachReadyAtMs,
 } from "@/lib/calculations";
 
 interface Props {
@@ -50,6 +50,31 @@ function fmtHour(ms: number, tf: '24h' | '12h'): string {
 function labelWidth(text: string, fs: number, withEmoji = false): number {
   const base = text.length * fs * 0.62;
   return withEmoji ? base + fs * 1.1 : base;
+}
+
+// Ghost-specific: find earliest T where Math.round((smoothed(T) + milk)/D * 100) === 100
+// Threshold: smoothed < D*1.005 - milk - 0.1  (strictly below 100.5%)
+function ghostIntakeReadyAtMs(
+  feeds: Feed[],
+  bottleWaterMl: number,
+  hourlyRate: number,
+  dailyTargetMl: number,
+  refMs: number
+): number {
+  const milkMl = waterToMilk(bottleWaterMl);
+  const target = dailyTargetMl * 1.005 - milkMl - 0.1;
+  const current = smoothedAtTime(feeds, hourlyRate, refMs);
+  if (current <= target) return refMs;
+  const T_max = refMs + 48 * 3_600_000;
+  if (smoothedAtTime(feeds, hourlyRate, T_max) > target) return T_max;
+  let lo = refMs, hi = T_max;
+  for (let i = 0; i < 60; i++) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (smoothedAtTime(feeds, hourlyRate, mid) > target) lo = mid;
+    else hi = mid;
+    if (hi - lo < 60_000) break;
+  }
+  return Math.floor((lo + hi) / 2);
 }
 
 function gastricClearMs(feedTimestampMs: number, volumeWaterMl: number): number {
@@ -102,14 +127,22 @@ export default function CanTakeCard({
     ? feeds.reduce((a, b) => a.timestamp > b.timestamp ? a : b)
     : null;
 
-  // Ghost progression: computed from lastFeed.timestamp so ghost markers show
-  // "when did this size first become available after the last feed?"
-  const ghostProgression = lastFeed
-    ? canTakeProgression(feeds, preferredBottleWaterMl, lastFeed.timestamp, hourlyRate, dailyTargetMl)
-    : progression;
-  const ghostReadyAt = new Map<number, number>(
-    ghostProgression.map(e => [e.waterMl, e.readyAtMs])
-  );
+  // Ghost readyAt: for each bottle size, compute the earliest time it's available after last feed,
+  // using a round-aware threshold (100.5% boundary) for the intake component.
+  const ghostReadyAt = new Map<number, number>();
+  if (lastFeed) {
+    const bottleSizes = [...new Set([
+      ...progression.map(e => e.waterMl),
+      ...FORMULA_TABLE.map(e => e.water),
+    ])];
+    for (const waterMl of bottleSizes) {
+      const stomachMs = stomachReadyAtMs(feeds, waterMl, preferredBottleWaterMl, lastFeed.timestamp, hourlyRate);
+      const intakeMs = ghostIntakeReadyAtMs(feeds, waterMl, hourlyRate, dailyTargetMl, lastFeed.timestamp);
+      ghostReadyAt.set(waterMl, Math.max(stomachMs, intakeMs));
+    }
+  } else {
+    progression.forEach(e => ghostReadyAt.set(e.waterMl, e.readyAtMs));
+  }
 
   const allFuture = progression.length > 0 && !progression.some(e => e.fitsNow);
   const lastFeedIsNonStandard = lastFeed ? !STANDARD_SIZES.has(lastFeed.volume) : false;
