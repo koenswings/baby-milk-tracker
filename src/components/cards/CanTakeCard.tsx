@@ -74,7 +74,7 @@ function ghostIntakeReadyAtMs(
     else hi = mid;
     if (hi - lo < 60_000) break;
   }
-  return Math.floor((lo + hi) / 2);
+  return hi; // hi is guaranteed to be ≤ target (shows 100%), lo is the last point still showing 101%
 }
 
 function gastricClearMs(feedTimestampMs: number, volumeWaterMl: number): number {
