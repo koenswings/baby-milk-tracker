@@ -508,14 +508,16 @@ export function intakeReadyAtMs(
 }
 
 /**
- * Returns a progression of bottle sizes the baby SHOULD take, combining both
+ * Returns a progression of ALL bottle sizes the baby could take, combining both
  * the stomach constraint and the intake constraint:
  *
  *   readyAt(X) = max(stomachReadyAtMs(X), intakeReadyAtMs(X))
  *
- * Noise-cutting rule: show only from the LARGEST size available now upward.
- * If nothing is available now, show all sizes (all in the future).
+ * All sizes from 30ml up to preferred+1 are always returned (no noise-cut rule).
  * Sizes capped at preferred+1.
+ *
+ * isAdvised: true for the largest size with fitsNow === true.
+ * If nothing fits now, isAdvised is false for all entries.
  */
 export function canTakeProgression(
   feeds: Feed[],
@@ -523,7 +525,7 @@ export function canTakeProgression(
   now: number,
   hourlyRate: number,
   dailyTargetMl: number
-): Array<{ waterMl: number; milkMl: number; readyAtMs: number; fitsNow: boolean; isPreferred: boolean }> {
+): Array<{ waterMl: number; milkMl: number; readyAtMs: number; fitsNow: boolean; isPreferred: boolean; isAdvised: boolean }> {
   const allSizes = FORMULA_TABLE.map(e => e.water);
   const prefIdx = allSizes.indexOf(preferredBottleWaterMl);
   // Include preferred + one size above (recovery bottle). §7.2 ceiling is preferred+1.
@@ -543,16 +545,17 @@ export function canTakeProgression(
     const iReady = intakeReadyAtMs(feeds, w, hourlyRate, dailyTargetMl, now);
     const readyAtMs = Math.max(sReady, iReady);
     const fitsNow = readyAtMs <= now + 30_000;
-    return { waterMl: w, milkMl, readyAtMs, fitsNow, isPreferred: w === preferredBottleWaterMl };
+    return { waterMl: w, milkMl, readyAtMs, fitsNow, isPreferred: w === preferredBottleWaterMl, isAdvised: false };
   });
 
-  // Find the largest size available now
+  // isAdvised: largest size with fitsNow === true
   const availableNow = entries.filter(e => e.fitsNow);
-  const startWater = availableNow.length > 0
-    ? availableNow[availableNow.length - 1].waterMl  // largest available now
-    : entries[0].waterMl;                             // nothing available — show all
+  if (availableNow.length > 0) {
+    const advisedWater = availableNow[availableNow.length - 1].waterMl;
+    entries.forEach(e => { e.isAdvised = e.waterMl === advisedWater; });
+  }
 
-  return entries.filter(e => e.waterMl >= startWater);
+  return entries;
 }
 
 /** Compute both predictors (A and B) from feeds + settings */

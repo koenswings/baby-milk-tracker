@@ -243,18 +243,46 @@ export default function CanTakeCard({
     });
   }
 
-  // Progression markers
+  // Progression markers — split into ghost, advised, and future
   progression.forEach(e => {
-    const isNow   = e.fitsNow;
-    const isAbove = e.waterMl > preferredBottleWaterMl;
-    allMarkers.push({
-      ms: e.readyAtMs, x: px(e.readyAtMs),
-      numStr: `${e.waterMl}`, showEmoji: true,
-      header: '', time: isNow ? 'now' : fmtTime(e.readyAtMs, timeFormat),
-      dotColor:  isNow ? '#4ade80' : isAbove ? '#2dd4bf' : '#f43f5e',
-      labelColor: isNow ? '#4ade80' : isAbove ? '#2dd4bf' : '#f43f5e',
-      fillDot: isNow,
-    });
+    if (e.isAdvised) {
+      // Ghost marker: show at readyAtMs (gray, hollow dot)
+      allMarkers.push({
+        ms: e.readyAtMs, x: px(e.readyAtMs),
+        numStr: `${e.waterMl}`, showEmoji: true,
+        header: '', time: fmtTime(e.readyAtMs, timeFormat),
+        dotColor: '#475569', labelColor: '#64748b',
+        fillDot: false,
+      });
+      // Advised marker: show at now (green, filled dot)
+      allMarkers.push({
+        ms: now, x: px(now),
+        numStr: `${e.waterMl}`, showEmoji: true,
+        header: 'Give now', time: 'now',
+        dotColor: '#4ade80', labelColor: '#4ade80',
+        fillDot: true,
+      });
+    } else if (e.fitsNow) {
+      // Ghost marker (fits now but not advised)
+      allMarkers.push({
+        ms: e.readyAtMs, x: px(e.readyAtMs),
+        numStr: `${e.waterMl}`, showEmoji: true,
+        header: '', time: fmtTime(e.readyAtMs, timeFormat),
+        dotColor: '#475569', labelColor: '#64748b',
+        fillDot: false,
+      });
+    } else {
+      // Future marker
+      const isAbove = e.waterMl > preferredBottleWaterMl;
+      allMarkers.push({
+        ms: e.readyAtMs, x: px(e.readyAtMs),
+        numStr: `${e.waterMl}`, showEmoji: true,
+        header: '', time: fmtTime(e.readyAtMs, timeFormat),
+        dotColor:  isAbove ? '#2dd4bf' : '#f43f5e',
+        labelColor: isAbove ? '#2dd4bf' : '#f43f5e',
+        fillDot: false,
+      });
+    }
   });
 
   allMarkers.sort((a, b) => a.ms - b.ms);
