@@ -102,6 +102,15 @@ export default function CanTakeCard({
     ? feeds.reduce((a, b) => a.timestamp > b.timestamp ? a : b)
     : null;
 
+  // Ghost progression: computed from lastFeed.timestamp so ghost markers show
+  // "when did this size first become available after the last feed?"
+  const ghostProgression = lastFeed
+    ? canTakeProgression(feeds, preferredBottleWaterMl, lastFeed.timestamp, hourlyRate, dailyTargetMl)
+    : progression;
+  const ghostReadyAt = new Map<number, number>(
+    ghostProgression.map(e => [e.waterMl, e.readyAtMs])
+  );
+
   const allFuture = progression.length > 0 && !progression.some(e => e.fitsNow);
   const lastFeedIsNonStandard = lastFeed ? !STANDARD_SIZES.has(lastFeed.volume) : false;
 
@@ -246,11 +255,12 @@ export default function CanTakeCard({
   // Progression markers — split into ghost, advised, and future
   progression.forEach(e => {
     if (e.isAdvised) {
-      // Ghost marker: show at readyAtMs (gray, hollow dot)
+      // Ghost marker: positioned at when this size first became available after last feed
+      const ghostMs = ghostReadyAt.get(e.waterMl) ?? (lastFeed?.timestamp ?? e.readyAtMs);
       allMarkers.push({
-        ms: e.readyAtMs, x: px(e.readyAtMs),
+        ms: ghostMs, x: px(ghostMs),
         numStr: `${e.waterMl}`, showEmoji: true,
-        header: '', time: fmtTime(e.readyAtMs, timeFormat),
+        header: '', time: fmtTime(ghostMs, timeFormat),
         dotColor: '#475569', labelColor: '#64748b',
         fillDot: false,
       });
@@ -263,11 +273,12 @@ export default function CanTakeCard({
         fillDot: true,
       });
     } else if (e.fitsNow) {
-      // Ghost marker (fits now but not advised)
+      // Ghost marker (fits now but not advised): positioned at when it first became available
+      const ghostMs = ghostReadyAt.get(e.waterMl) ?? (lastFeed?.timestamp ?? e.readyAtMs);
       allMarkers.push({
-        ms: e.readyAtMs, x: px(e.readyAtMs),
+        ms: ghostMs, x: px(ghostMs),
         numStr: `${e.waterMl}`, showEmoji: true,
-        header: '', time: fmtTime(e.readyAtMs, timeFormat),
+        header: '', time: fmtTime(ghostMs, timeFormat),
         dotColor: '#475569', labelColor: '#64748b',
         fillDot: false,
       });
