@@ -489,7 +489,10 @@ export function intakeReadyAtMs(
   // Without this, logging 120 ml can show "100%" while the predictor still says
   // "wait 30 min" because currentSmoothed = 1080.0001 ml > targetBefore = 1080.0 ml.
   const TOLERANCE_ML = 1;
-  if (currentSmoothed <= targetBefore + TOLERANCE_ML) return now; // underfed or on-target: give now
+  // Return now whenever the baby is underfed: the bottle achieves ≥100% status at any time,
+  // so the stomach constraint is the only binding one.
+  // Only binary-search when genuinely overfed (smoothed ≥ D): wait for intake to decay first.
+  if (currentSmoothed < dailyTargetMl - TOLERANCE_ML) return now;
 
   const T_max = now + 48 * 3_600_000;
   if (smoothedAtTime(feeds, hourlyRate, T_max) > targetBefore) return T_max; // still overfed at 48h
