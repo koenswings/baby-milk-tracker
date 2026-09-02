@@ -7,7 +7,7 @@ import { Settings, Feed } from "@/types";
 import BottomNav from "@/components/BottomNav";
 import { useRouter } from "next/navigation";
 
-const APP_VERSION = "1.1.51";
+const APP_VERSION = "1.1.52";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({

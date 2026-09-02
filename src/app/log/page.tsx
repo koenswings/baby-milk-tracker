@@ -24,13 +24,12 @@ function LogPageInner() {
   const recParam = Number(searchParams.get("recommend"));
   const recStatus = searchParams.get("recStatus") ?? "optimal"; // "optimal" | "overfed" | "capped"
   const hasRec = Number.isFinite(recParam) && recParam > 0;
-  const initialBottle = hasRec ? recParam : 90;
 
   const [datetime, setDatetime] = useState(nowDatetimeString);
   const [datetimeEdited, setDatetimeEdited] = useState(false);
-  const [bottleSize, setBottleSize] = useState<number>(initialBottle); // selected bottle size in water ml
+  const [bottleSize, setBottleSize] = useState<number>(hasRec ? recParam : 120); // temp default; overridden by settings load
   const [inputUnit, setInputUnit] = useState<'water' | 'milk'>('milk');
-  const [volume, setVolume] = useState<string>(String(Math.round(waterToMilk(initialBottle)))); // displayed in inputUnit
+  const [volume, setVolume] = useState<string>(String(Math.round(waterToMilk(hasRec ? recParam : 120))));
   const [saving, setSaving] = useState(false);
   const [recentFeeds, setRecentFeeds] = useState<Feed[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -55,8 +54,13 @@ function LogPageInner() {
       const sorted = [...feeds].sort((a, b) => b.timestamp - a.timestamp);
       setRecentFeeds(sorted.slice(0, 3));
       setSettings(s);
+      // Default bottle size to preferred, unless pre-filled by ?recommend= param
+      if (!hasRec) {
+        setBottleSize(s.preferredBottleWaterMl);
+        setVolume(String(Math.round(waterToMilk(s.preferredBottleWaterMl))));
+      }
     });
-  }, []);
+  }, [hasRec]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
