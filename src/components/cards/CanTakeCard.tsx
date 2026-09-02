@@ -74,7 +74,9 @@ function ghostIntakeReadyAtMs(
     else hi = mid;
     if (hi - lo < 60_000) break;
   }
-  return hi; // hi is guaranteed to be ≤ target (shows 100%), lo is the last point still showing 101%
+  // hi is guaranteed to be ≤ target (shows 100%). Ceil to the next full minute so the
+  // displayed HH:MM is also guaranteed to be in the 100% zone (not a seconds-truncated 17:07:45).
+  return Math.ceil(hi / 60_000) * 60_000;
 }
 
 function gastricClearMs(feedTimestampMs: number, volumeWaterMl: number): number {
