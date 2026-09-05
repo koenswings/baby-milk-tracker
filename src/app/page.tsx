@@ -126,30 +126,13 @@ export default function Dashboard() {
     ? feeds.reduce((a, b) => (a.timestamp > b.timestamp ? a : b))
     : null;
 
-  const smoothedAt = lastFeed ? lastFeed.timestamp : now;
-  const strict24h = strict24hTotal(feeds, smoothedAt);
-  const liveSmoothedMl = smoothedAtTime(feeds, derived.hourlyRate, now);
-  const liveSmoothedPct = (liveSmoothedMl / derived.dailyTargetMl) * 100;
-  const { totalMl: smoothedMl } = smoothedEffective(
-    feeds,
-    derived.hourlyRate,
-    settings.preferredBottleWaterMl,
-    smoothedAt
-  );
-  const strict24hPct = (strict24h / derived.dailyTargetMl) * 100;
-  const smoothedPct = (smoothedMl / derived.dailyTargetMl) * 100;
-
-  // WHO z-score and effective weight
+  // WHO z-score and effective weight — computed FIRST so all calculations use correct D
   const startOfToday = (() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); })();
   let effectiveWeightKg = settings.weightKg;
   let zScore: number | null = null;
   let weightSource: 'manual' | 'predicted' = 'manual';
   if (settings.dateOfBirthMs && settings.sex && weights.length >= 1) {
     zScore = estimateZChannel(weights, settings.dateOfBirthMs, settings.sex);
-    // Only use the WHO growth model prediction if there is no recent measurement.
-    // If a real weigh-in exists within the last 7 days, use it directly — projecting
-    // forward from historical z-scores would override a fresh measurement with a
-    // potentially higher estimate (e.g. showing 7.62 kg when 7.5 kg was measured yesterday).
     const latestWeight = [...weights].sort((a, b) => b.timestamp - a.timestamp)[0];
     const daysSinceLastWeigh = (startOfToday - latestWeight.timestamp) / 86_400_000;
     if (daysSinceLastWeigh <= 7) {
@@ -157,14 +140,28 @@ export default function Dashboard() {
       weightSource = 'manual';
     } else {
       const predicted = predictWeightKg(weights, settings.dateOfBirthMs, settings.sex, startOfToday);
-      if (predicted !== null && predicted > 0 && predicted <= latestWeight.weightKg * 1.15) {
-        // Sanity check: reject WHO projection if >15% above last measured weight
+      if (predicted !== null && predicted > 0) {
         effectiveWeightKg = predicted;
         weightSource = 'predicted';
       }
     }
   }
   const effectiveDailyTargetMl = effectiveWeightKg * settings.mlPerKgPerDay;
+  // Use effective weight for ALL calculations — this is the source of truth for D and hourlyRate
+  const effectiveDerived = deriveSettings({ ...settings, weightKg: effectiveWeightKg });
+
+  const smoothedAt = lastFeed ? lastFeed.timestamp : now;
+  const strict24h = strict24hTotal(feeds, smoothedAt);
+  const liveSmoothedMl = smoothedAtTime(feeds, effectiveDerived.hourlyRate, now);
+  const liveSmoothedPct = (liveSmoothedMl / effectiveDerived.dailyTargetMl) * 100;
+  const { totalMl: smoothedMl } = smoothedEffective(
+    feeds,
+    effectiveDerived.hourlyRate,
+    settings.preferredBottleWaterMl,
+    smoothedAt
+  );
+  const strict24hPct = (strict24h / effectiveDerived.dailyTargetMl) * 100;
+  const smoothedPct = (smoothedMl / effectiveDerived.dailyTargetMl) * 100;
 
   const tf = settings.timeFormat;
 
@@ -174,7 +171,7 @@ export default function Dashboard() {
       <div className="flex items-baseline justify-between mb-1">
         <h1 className="text-2xl font-bold text-slate-100">🍼 MilkWise</h1>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">v1.1.53</span>
+          <span className="text-xs text-slate-500">v1.1.54</span>
           <Link
             href="/info/app"
             className="w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 text-xs font-bold flex items-center justify-center leading-none"
@@ -361,9 +358,9 @@ export default function Dashboard() {
         smoothedPct={smoothedPct}
         liveSmoothedMl={liveSmoothedMl}
         liveSmoothedPct={liveSmoothedPct}
-        dailyTargetMl={derived.dailyTargetMl}
+        dailyTargetMl={effectiveDerived.dailyTargetMl}
         standardBottleVolume={settings.preferredBottleWaterMl}
-        hourlyRate={derived.hourlyRate}
+        hourlyRate={effectiveDerived.hourlyRate}
         yellowThresholdPct={settings.yellowThresholdPct}
         redThresholdPct={settings.redThresholdPct}
         onStrictExplain={() => setShowStrictExplainer(true)}
@@ -379,9 +376,9 @@ export default function Dashboard() {
       {showSmoothedExplainer && derived && (
         <SmoothedExplainer
           onClose={() => setShowSmoothedExplainer(false)}
-          hourlyRate={derived.hourlyRate}
+          hourlyRate={effectiveDerived.hourlyRate}
           preferredBottleWaterMl={settings.preferredBottleWaterMl}
-          dailyTargetMl={derived.dailyTargetMl}
+          dailyTargetMl={effectiveDerived.dailyTargetMl}
           feeds={feeds}
           now={smoothedAt}
         />
@@ -398,8 +395,8 @@ export default function Dashboard() {
               preferredBottleWaterMl={settings.preferredBottleWaterMl}
               feeds={feeds}
               now={now}
-              hourlyRate={derived.hourlyRate}
-              dailyTargetMl={derived.dailyTargetMl}
+              hourlyRate={effectiveDerived.hourlyRate}
+              dailyTargetMl={effectiveDerived.dailyTargetMl}
               timeFormat={settings.timeFormat}
             />
           ) : (
@@ -408,8 +405,8 @@ export default function Dashboard() {
               preferredBottleWaterMl={settings.preferredBottleWaterMl}
               feeds={feeds}
               now={now}
-              hourlyRate={derived.hourlyRate}
-              dailyTargetMl={derived.dailyTargetMl}
+              hourlyRate={effectiveDerived.hourlyRate}
+              dailyTargetMl={effectiveDerived.dailyTargetMl}
               timeFormat={settings.timeFormat}
             />
           )}
@@ -430,7 +427,7 @@ export default function Dashboard() {
         </div>
         <div className="bg-slate-800 rounded-lg p-3 text-center">
           <div className="text-lg font-bold text-slate-100">
-            {Math.round(derived.hourlyRate * 10) / 10}
+            {Math.round(effectiveDerived.hourlyRate * 10) / 10}
           </div>
           <div className="text-xs text-slate-400">ml/hour</div>
         </div>
