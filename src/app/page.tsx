@@ -157,7 +157,8 @@ export default function Dashboard() {
       weightSource = 'manual';
     } else {
       const predicted = predictWeightKg(weights, settings.dateOfBirthMs, settings.sex, startOfToday);
-      if (predicted !== null && predicted > 0) {
+      if (predicted !== null && predicted > 0 && predicted <= latestWeight.weightKg * 1.15) {
+        // Sanity check: reject WHO projection if >15% above last measured weight
         effectiveWeightKg = predicted;
         weightSource = 'predicted';
       }
@@ -173,7 +174,7 @@ export default function Dashboard() {
       <div className="flex items-baseline justify-between mb-1">
         <h1 className="text-2xl font-bold text-slate-100">🍼 MilkWise</h1>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">v1.1.52</span>
+          <span className="text-xs text-slate-500">v1.1.53</span>
           <Link
             href="/info/app"
             className="w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 text-xs font-bold flex items-center justify-center leading-none"
