@@ -146,6 +146,19 @@ export default function CanTakeCard({
     progression.forEach(e => ghostReadyAt.set(e.waterMl, e.readyAtMs));
   }
 
+  // Enforce ascending order: ghost markers must appear left-to-right smallest-to-largest.
+  // When overfed, smaller bottles can compute a later ghost time than larger ones (they need
+  // more decay), which is backwards from parent expectation. Clamp each to be >= previous.
+  {
+    const orderedSizes = [...ghostReadyAt.keys()].sort((a, b) => a - b);
+    let prevGhostMs = 0;
+    for (const w of orderedSizes) {
+      const ghostMs = Math.max(ghostReadyAt.get(w)!, prevGhostMs);
+      ghostReadyAt.set(w, ghostMs);
+      prevGhostMs = ghostMs;
+    }
+  }
+
   const allFuture = progression.length > 0 && !progression.some(e => e.fitsNow);
   const lastFeedIsNonStandard = lastFeed ? !STANDARD_SIZES.has(lastFeed.volume) : false;
 
