@@ -46,7 +46,7 @@ On the 2026-10-20 snapshot none of these applied: all implementations agree (see
 3. **Decide whether mobile adopts Predictor 3** (`nextFeedTime` / `findTargetAwareNext`, which needs `weights.ts`), or whether it is dropped from web.
 4. **Unify weight selection** in a shared `effectiveWeight(settings, weights, startOfToday)` helper in the canonical file. Recommendation: fall back to the latest **measured** weight (mobile behaviour) both when the prediction is null and when DOB/sex are missing.
 5. **Fix the `DATA_DIR` default mismatch** (one constant for both server modules).
-6. **Shared golden-value test suite** run in both repos (neither repo has a test runner yet). The checker in `/workspace/milkwise-verify` (see status-calculation.md) is a starting point.
+6. **Shared golden-value test suite** run in both repos (neither repo has a test runner yet). The checker in `/workspace/milkwise-verify` (see [next-session-predictor-design-v3.md §12](next-session-predictor-design-v3.md)) is a starting point.
 7. **CI check that the files are byte-identical.**
 
 ## Open questions for reviewers
