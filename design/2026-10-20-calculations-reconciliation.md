@@ -30,7 +30,14 @@ Both repos have `src/lib/calculations.ts`; the files differ (web 648 lines, mobi
 3. **Timezone:** "start of today" (`setHours(0,0,0,0)`) uses the runtime's local timezone: the browser for web, the device for mobile. Near midnight, or when device timezones differ, the >7-day rule can switch on different days.
 4. **`DATA_DIR` defaults on the web server:** `src/lib/server-store.ts:8` (feeds, settings) defaults to `../../data`; `src/lib/server-weights.ts:5` (weights) defaults to `./data`. If `DATA_DIR` is unset, weights may be read from a different directory than feeds and settings. Mobile reads everything through the web API (`milkwise src/lib/store.ts`), so it inherits whatever the server returns.
 
-On the 2026-10-20 snapshot none of these applied: all implementations agree (see [status-calculation.md](status-calculation.md)).
+On the 2026-10-20 snapshot none of these applied: all implementations agree (see the addendum in [next-session-predictor-design-v3.md §12](next-session-predictor-design-v3.md)).
+
+### Context: a third copy in `koenswings/app-milkwise`
+
+`koenswings/app-milkwise` (the IDEA App Disk build of the web app, version 1.0.86 per `app/src/app/settings/page.tsx`) carries its own `app/src/lib/calculations.ts` (513 lines). That repo is **owned by IDEA App Dev Bot**, so this proposal does not change it; it is listed for context only.
+- `FORMULA_TABLE`, `waterToMilk`, `bottleCredit` and `smoothedEffective` are identical to web, so the status numbers use the same formula.
+- It is an older snapshot: no `weights` import, and `dailyTotals` still reads the deprecated `Feed.targetMlPerDay` per day instead of `dailyTargetAtTime()`.
+- Any canonical-file / CI scheme should decide whether app-milkwise follows it (coordinate with its owner).
 
 ## Proposal
 
@@ -50,3 +57,5 @@ On the 2026-10-20 snapshot none of these applied: all implementations agree (see
 - Should "start of today" be pinned to a configured timezone (e.g. Europe/Brussels) instead of the device's?
 - Test runner choice per repo and where golden fixtures live.
 - How does the byte-identity CI check access the other repo?
+- Should app-milkwise's copy be included in the canonical-file scheme (owner: IDEA App Dev Bot)?
+- **Bottle sizes:** Koen's Notion page "!Milkwise" asks to only support multiples of 30 ml and not talk about interpolation, because parents can only make bottles in 30 ml steps. The code still interpolates and extrapolates `waterToMilk` for any volume (`calculations.ts:58-81`), and the log screen accepts arbitrary volumes. Keep interpolation, or restrict input to table sizes?

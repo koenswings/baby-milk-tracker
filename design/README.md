@@ -1,6 +1,6 @@
 # Design
 
-This folder records design decisions **before** code changes. Each document is a dated decision record or proposal (`YYYY-MM-DD-<slug>.md`) with a status: `For Design Review`, `Decided`, `Superseded`.
+This folder holds the MilkWise design documentation. Design decisions are recorded here **before** code changes. The original design docs were imported in PR #1 from `agent-app-dev/proposals/milkwise` (c73c00e). New decisions are dated records or proposals (`YYYY-MM-DD-<slug>.md`) with a status: `For Design Review`, `Decided`, `Superseded`.
 
 It covers both MilkWise codebases:
 - `koenswings/baby-milk-tracker` — Next.js web app (this repo)
@@ -20,8 +20,31 @@ Any change must preserve these unless a decision record here explicitly changes 
 
 ## Index
 
-| Date | Document | Status |
+### Core design
+| Document | Status | Summary |
 |---|---|---|
-| 2026-10-20 | [Remove `targetMlPerDay` write in milkwise](2026-10-20-remove-targetMlPerDay-write.md) | Decided |
-| 2026-10-20 | [Reconcile the two `calculations.ts` copies](2026-10-20-calculations-reconciliation.md) | For Design Review |
-| 2026-10-20 | [Status card calculation (24h intake, %, ±ml)](status-calculation.md) | Documentation |
+| [next-session-predictor-design-v3.md](next-session-predictor-design-v3.md) | Current | **Main formula spec:** smoothed intake / bottle credit, target, standard interval, stomach model, Next Feed, Should Take, Status card. Includes the 2026-10-20 status-display addendum (§12). |
+| [weight-compensation-design.md](weight-compensation-design.md) | Implemented | WHO LMS weight prediction; measured weight if weigh-in ≤7 days old |
+| [data-architecture.md](data-architecture.md) | Reference | Data files (feeds/settings/weights.json), constants, derived quantities, frozen-at-last-feed principle |
+| [next-session-predictor-design-v2.md](next-session-predictor-design-v2.md) | Archived | Previous predictor design (Predictors 1–3) |
+| [next-session-predictor-summary.md](next-session-predictor-summary.md) | Archived | Summary of v2 |
+
+### Audits
+| Document | Status | Summary |
+|---|---|---|
+| [code-verification-audit.md](code-verification-audit.md) | Partial match | Equations of `milkwise-calculation-audit.pdf` (EQ-1..12) vs code |
+| [sonnet-review-calculation-audit.md](sonnet-review-calculation-audit.md) | Review | Technical review of the calculation audit vs v3 design |
+
+### Product, build & data
+| Document | Status | Summary |
+|---|---|---|
+| [milkwise-commercialisation.md](milkwise-commercialisation.md) | In progress | Mobile app commercialisation plan, features, tiers |
+| [milkwise-pricing-analysis.md](milkwise-pricing-analysis.md) | — | Pricing options and income estimates |
+| [milkwise-ios-android-build.md](milkwise-ios-android-build.md) | — | EAS / App Store / Play build guide |
+| [milkwise-mobile-data-analysis.md](milkwise-mobile-data-analysis.md) | — | Mobile data storage and sync analysis |
+
+### Decision records & proposals (2026-10-20)
+| Document | Status |
+|---|---|
+| [2026-10-20-remove-targetMlPerDay-write.md](2026-10-20-remove-targetMlPerDay-write.md) | Decided |
+| [2026-10-20-calculations-reconciliation.md](2026-10-20-calculations-reconciliation.md) | For Design Review |
