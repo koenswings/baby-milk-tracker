@@ -24,3 +24,4 @@ Any change must preserve these unless a decision record here explicitly changes 
 |---|---|---|
 | 2026-10-20 | [Remove `targetMlPerDay` write in milkwise](2026-10-20-remove-targetMlPerDay-write.md) | Decided |
 | 2026-10-20 | [Reconcile the two `calculations.ts` copies](2026-10-20-calculations-reconciliation.md) | For Design Review |
+| 2026-10-20 | [Status card calculation (24h intake, %, ±ml)](status-calculation.md) | Documentation |
