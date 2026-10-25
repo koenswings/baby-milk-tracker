@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import fx from "./fixtures/snapshot-20261024.json";
 import { effectiveWeightKg, smoothedEffective, WEIGHT_FRESH_MS } from "@/lib/calculations";
-import { highlightSegmentsAt, statusWeight, zoneSegments } from "@/lib/zoneSegments";
+import { frozenCalcSettings, highlightSegmentsAt, zoneSegments } from "@/lib/zoneSegments";
 import { Feed, Settings } from "@/types";
 
 const D = fx.D;
@@ -101,7 +101,7 @@ describe("replay uses the weight at each past feed", () => {
   });
   const last = Math.max(...feeds.map((f) => f.timestamp));
   const status = (fs: Feed[], ws: typeof weights) => {
-    const w = statusWeight(fs, current, ws, dayStart).weightKg;
+    const w = frozenCalcSettings(fs, current, [], ws, dayStart).weightKg;
     const d = w * 150;
     return { d, pct: (smoothedEffective(fs, d / 24, 120, Math.max(...fs.map((f) => f.timestamp))).totalMl / d) * 100 };
   };

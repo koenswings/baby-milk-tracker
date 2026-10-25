@@ -33,7 +33,7 @@ function NumericView({ settings, derived }: Props) {
         <span className="text-3xl font-bold leading-none tabular-nums text-blue-300">{targetBottles.toFixed(1)}<span className="text-base font-normal text-slate-500 ml-0.5">× {settings.preferredBottleWaterMl}ml bottles</span></span>
       </div>
       <div className="text-sm text-slate-400 mb-1">{settings.preferredBottleWaterMl} ml · every {intervalLabel}</div>
-      <div className="text-xs text-slate-600 mb-2">{settings.weightKg} kg × {settings.mlPerKgPerDay} ml/kg</div>
+      <div className="text-xs text-slate-600 mb-2">{+settings.weightKg.toFixed(2)} kg × {settings.mlPerKgPerDay} ml/kg</div>
 
       {/* Bottle pictograms below — full width, same as Status */}
       <div className="flex flex-wrap gap-1">
@@ -133,7 +133,7 @@ function FunFactsView({ settings, derived }: Props) {
     <div className="p-3">
       <div className="text-xs text-slate-400 mb-1 uppercase tracking-wide">Did you know? 🌟</div>
       <div className="text-slate-300 text-sm mb-2">
-        <span className="text-slate-100 font-bold">{settings.weightKg} kg</span> baby needs <span className="text-slate-100 font-bold">{ml} ml</span>/day — that&apos;s like…
+        <span className="text-slate-100 font-bold">{+settings.weightKg.toFixed(2)} kg</span> baby needs <span className="text-slate-100 font-bold">{ml} ml</span>/day — that&apos;s like…
       </div>
       <div className="space-y-1">
         {facts.map(({ emoji, text }) => (
