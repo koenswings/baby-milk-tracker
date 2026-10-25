@@ -104,6 +104,7 @@ Per Steve's check, **no backups exist** for the production data folder `/instanc
 - **Risk:** disk or volume loss destroys feeds, weigh-ins, settings and the new history; the history adds value only if it survives.
 - **Dependency:** a backup proposal covering the whole `DATA_DIR` (including `settings-history.jsonl`) is **pending Koen's decision**. It does not block implementing this design, but the feature should not be considered "done" for replay purposes until backups exist.
 - Reconcile (§3.5) makes a later restore from an older backup safe.
+- **Decision 2026-10-25 (Koen):** no nightly backup of the production data folder for now. Production data on the Pi (bind mount `/instances/milkwise-wizardly-hugle-001/data`) has no backup; `settings-history.jsonl` and feed data are lost if that disk fails. Revisit on request.
 
 ## 7. Implementation checklist with acceptance tests
 
