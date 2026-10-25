@@ -4,13 +4,14 @@ import { dataFile, getDataDir } from "@/lib/data-dir";
 import { appendLineSync, writeFileAtomicSync } from "@/lib/atomic-write";
 import { APP_VERSION } from "@/lib/version";
 import {
+  pickPersisted,
   HistoryEntry, HistorySource, diffLogged, isoWithOffset, parseHistory,
   sameLogged, settingsAt, snapshotLogged, sortEntries,
 } from "@/lib/settingsHistory";
 
 // Data directory: see src/lib/data-dir.ts (DATA_DIR env wins, default <cwd>/data).
 const feedsFile = () => dataFile("feeds.json");
-const settingsFile = () => dataFile("settings.json");
+export const settingsFile = () => dataFile("settings.json");
 export const historyFile = () => dataFile("settings-history.jsonl");
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -47,7 +48,7 @@ function readSettingsWithStatus(): { settings: Settings; ok: boolean } {
   ensureDir();
   if (!fs.existsSync(settingsFile())) return { settings: { ...DEFAULT_SETTINGS }, ok: true };
   try {
-    return { settings: { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(settingsFile(), "utf8")) }, ok: true };
+    return { settings: { ...DEFAULT_SETTINGS, ...pickPersisted(JSON.parse(fs.readFileSync(settingsFile(), "utf8"))) }, ok: true };
   } catch {
     return { settings: { ...DEFAULT_SETTINGS }, ok: false };
   }
@@ -64,7 +65,9 @@ export function readSettings(): Settings {
 export function writeSettings(settings: Settings, source: HistorySource, now: Date = new Date()): void {
   ensureDir();
   const { settings: baseline, ok } = readSettingsWithStatus();
-  const changes = diffLogged(baseline, settings);
+  // Allowlist: unknown keys and the deprecated targetMlPerDay never reach disk.
+  const clean = pickPersisted(settings) as Settings;
+  const changes = diffLogged(baseline, clean);
   if (Object.keys(changes).length > 0) {
     const at = isoWithOffset(now);
     const entry: HistoryEntry = {
@@ -74,7 +77,7 @@ export function writeSettings(settings: Settings, source: HistorySource, now: Da
     };
     appendLineSync(historyFile(), JSON.stringify(entry));
   }
-  writeFileAtomicSync(settingsFile(), JSON.stringify(settings));
+  writeFileAtomicSync(settingsFile(), JSON.stringify(clean));
 }
 
 /** Read the JSONL history, skipping (and warning about) corrupt lines. File is never rewritten. */

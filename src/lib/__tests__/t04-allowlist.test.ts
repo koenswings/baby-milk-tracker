@@ -1,4 +1,5 @@
 // §7 #4 — LOGGED_KEYS allowlist + diff in writeSettings, history first.
+import { APP_VERSION } from "@/lib/version";
 import fs from "fs";
 import { DEFAULT_SETTINGS, historyFile, writeSettings } from "@/lib/server-store";
 import { readLines, tmpDataDir } from "@/lib/test-helpers";
@@ -12,7 +13,7 @@ test("#4 changing one key → exactly one line with correct old/new, v:1", () =>
   writeSettings({ ...DEFAULT_SETTINGS, preferredBottleWaterMl: 120 }, "web");
   const lines = readLines(historyFile()).slice(n0);
   expect(lines).toHaveLength(1);
-  expect(lines[0]).toMatchObject({ v: 1, kind: "diff", source: "web", appVersion: "1.1.57",
+  expect(lines[0]).toMatchObject({ v: 1, kind: "diff", source: "web", appVersion: APP_VERSION,
     changes: { preferredBottleWaterMl: { old: 90, new: 120 } } });
   expect(Object.keys(lines[0].changes as object)).toEqual(["preferredBottleWaterMl"]);
   expect(lines[0].effectiveFrom).toBe(lines[0].changedAt);
