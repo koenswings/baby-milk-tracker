@@ -191,13 +191,47 @@ Rules proposed for discussion:
 
 ## 9. Reproduction
 
-Verifier (outside the repo, read-only): `/workspace/milkwise-verify/verify_zones.ts <db> <ISO time> <out.json>`; charts by `zones/plot.py` and `zones/plot_behind_real.py`; history scan `scan_behind_zones.ts <db> <out.json>`. Snapshots `milkwise-data-20261024-161114` (ahead, ref 14:31) and `milkwise-data-20261020-111441` (behind, ref 11:05).
+Verifier (outside the repo, read-only): `/workspace/milkwise-verify/verify_zones.ts <db> <ISO time> <out.json>`; charts by `zones/plot.py`, `zones/plot_history.py` (+ `history_zones.ts`) and `zones/plot_behind_real.py`; history scan `scan_behind_zones.ts <db> <out.json>`. Snapshots `milkwise-data-20261024-161114` (ahead, ref 14:31) and `milkwise-data-20261020-111441` (behind, ref 11:05).
 
-## 10. Open questions for Koen
+## 10. Decisions
 
-1. Upper bound: 105 % (= yellow threshold) or something tighter such as 102.5 %? It controls zone width and overlap (overlap iff ΔB < (upper − 1)·D).
-2. Green when two zones overlap: largest size (proposed), or the one closest to its ideal close?
-3. Behind case: show "under target" sizes as green, or a different colour?
-4. Show smaller in-zone sizes (grey) or hide them (noise-cut)?
-5. Do we keep preferred + 1 as the ceiling for zones?
-6. Bars (Figure D) or points with "ok from" sub-labels?
+| Date | Decision | By |
+|---|---|---|
+| 2026-10-25 08:45 CET | **Zone-open bound stays at 105 %** — it coincides with the yellow status band (`yellowThresholdPct` = 5), so "zone open" = "giving it now just stays out of yellow". | Koen |
+| 2026-10-25 08:45 CET | **Ceiling stays at preferred + 1 size** (120 → 150); larger sizes get no zone. | Koen |
+| 2026-10-25 (earlier) | Direction: 100 % is the consistent "ideal" rule (zone close); ghost markers to be dropped. | Koen (leaning, confirmed by this design) |
+
+## 11. Proposed UI refinements (ideas from Koen, 2026-10-25 — proposed, not decided)
+
+![History mockup](img/zones-f-history-mockup.png)
+
+*Figure F — real data. Top: 24/10 08:00–18:00, now = 16:08. Bottom: 16/10 16:30–19:45 replayed with now = 18:30 (the behind-with-real-zones example of §4.3). Dark app style, per-size colours, start-% labels, feed lines, now line.*
+
+**11.1 One fixed colour per bottle size.** Every size keeps the same colour everywhere (timeline, history, settings, feed list). Proposed palette: Okabe-Ito, which stays distinguishable for the common colour-vision deficiencies — 30 orange `#E69F00`, 60 sky blue `#56B4E9`, 90 bluish green `#009E73`, 120 yellow `#F0E442`, 150 reddish purple `#CC79A7` (180/210 would get blue `#0072B2` / vermillion `#D55E00` if ever shown). Colour is never the only cue: bars always carry the size label.
+*Conflict with "green = can take now":* green would then just be "the 90 colour". Proposal: "now" becomes **emphasis on the size's own colour** — full saturation + white outline (or glow) + a bold label "90 ml · NOW" — while other bars are drawn at reduced opacity. Only the largest size in zone gets the emphasis (§5 rule 1). The status card keeps its green/yellow/red semantics; the timeline no longer uses green as a state.
+
+**11.2 Starting percentage on each bar.** Label: `90 ml 16:09–17:05 · 105→100%`. The start % is the landing status when the zone opens: 105 % if the 105 % bound opens it, or the lower stomach-limited value (e.g. `102→100%`) when the stomach opens it. Collapsed sizes show a single landing value as a ring marker (e.g. `○ 94%`). The status at each feed line is printed under the feed label ("status 105%").
+
+**11.3 Keep the past: continuous history.** The timeline becomes continuous. Each actual feed is a solid vertical line labelled with time + volume (+ status after the feed); it *cuts* all zones, and a fresh set of zones starts after it (zones are recomputed with that feed included). Past zones stay, dimmed. The bottle actually given is marked (◆) on its own size row, and the feed gets a verdict against the zone computed after the previous feed:
+
+- **in zone** — fed between open and close of that size;
+- **early** — before the zone opened (would land > 105 % or stomach not yet ready);
+- **late** — after the zone closed (landed < 100 %);
+- **ok (under)** — that size was collapsed (could only land under 100 %) and was given after it fitted.
+
+On 24/10 the verdicts were: 09:12 ✓ in zone, 12:00 early, 14:30 early. On 16/10: 19:18 ✓ in zone (despite being behind at 17:01). This makes advice-vs-reality auditable at a glance.
+
+**11.4 Data needed for historic replay.** Feeds (`feeds.json`, timestamped) and weigh-ins (`weights.json`, timestamped → measured / WHO weight per day, hence D) are stored, so zones can be replayed. **Not stored historically:** `preferredBottleWaterMl`, `mlPerKgPerDay`, the yellow/red thresholds, and DOB/sex edits — `settings.json` only holds current values. Replay therefore uses today's settings (the mockups use preferred = 120 throughout; the history scan in §4.3 has the same caveat). Options: (a) accept it (most settings rarely change); (b) store a small `settingsHistory` (timestamp + changed keys) on every settings save; (c) snapshot the computed zones / advice at each feed (`feed.adviceSnapshot`), which also captures app-version changes. Also note that editing or deleting a past weigh-in changes replayed history.
+
+## 12. Open questions for Koen (remaining)
+
+1. Green when two zones overlap → now "emphasis": largest size in zone (proposed), or the one closest to its ideal close?
+2. Collapsed sizes when behind: show as ring + % (proposed), or as a short bar from S?
+3. Smaller sizes that are also in zone: show dimmed (as in Figure F) or hide (noise-cut)?
+4. Bars (Figures D/F) or points with "ok from" sub-labels?
+5. Palette: Okabe-Ito as proposed, or app-brand colours checked with a colour-blind simulator?
+6. How much past to keep visible (since midnight, last 24 h, scrollable all)?
+7. Verdict tolerance: should "early/late" by a few minutes count as in zone (e.g. ±10 min)?
+8. Historic replay: accept current settings, or add `settingsHistory` / per-feed advice snapshots (§11.4)?
+
+*Closed: upper bound (105 %, §10) · ceiling (preferred + 1, §10).*
