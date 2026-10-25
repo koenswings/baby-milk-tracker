@@ -30,7 +30,7 @@ Koen's direction (2026-10-25): 100 % is the most consistent rule, drop the ghost
 
 ## 2. Proposal in one paragraph
 
-For every bottle size X, show a **zone in time** rather than a point: the zone **opens** when giving X would land the status at **105 %** (the top of the green band, and never before the stomach can hold X) and **closes** when giving X would land at exactly **100 %** (the ideal). Inside the zone, X is a good choice; the close is the "ideal" moment (= today's 100 % marker). Zones of neighbouring sizes **overlap**, so at most moments two sizes are acceptable; the app highlights the **largest size whose zone contains now**.
+For every bottle size X, show a **zone in time** rather than a point: the zone **opens** when giving X would land the status at **105 %** (the top of the green band, and never before the stomach can hold X) and **closes** when giving X would land at exactly **100 %** (the ideal). Inside the zone, X is a good choice; the close is the "ideal" moment (= today's 100 % marker). Zones of neighbouring sizes **overlap**, so at most moments two sizes are acceptable; the app highlights the size in zone whose landing % now is **closest to 100 %** (decided, §10).
 
 ## 3. Maths
 
@@ -199,6 +199,7 @@ Verifier (outside the repo, read-only): `/workspace/milkwise-verify/verify_zones
 |---|---|---|
 | 2026-10-25 08:45 CET | **Zone-open bound stays at 105 %** — it coincides with the yellow status band (`yellowThresholdPct` = 5), so "zone open" = "giving it now just stays out of yellow". | Koen |
 | 2026-10-25 08:52 CET | **Highlight = size whose landing % is closest to 100 %** when several zones contain now (i.e. the one nearest its zone close). Tie-break: larger size. Collapsed sizes only take part when no zone contains now: then the largest collapsed size that fits the stomach is highlighted ("under target"). Used in Figures D, F, G. | Koen |
+| 2026-10-25 09:54 CET | **Highlight rule confirmed: stays 'closest to 100 %'** after reviewing Issue 1 below (small-bottle drift, e.g. 30 ml at 16:11). Alternative 'largest size in zone' rejected. | Koen |
 | 2026-10-25 08:45 CET | **Ceiling stays at preferred + 1 size** (120 → 150); larger sizes get no zone. | Koen |
 | 2026-10-25 (earlier) | Direction: 100 % is the consistent "ideal" rule (zone close); ghost markers to be dropped. | Koen (leaning, confirmed by this design) |
 
@@ -263,7 +264,7 @@ Totals (26 feeds): in zone 10 · early 8 (6 vs the 105 % bound, 2–39 min; 2 "t
 
 ### Issues found — does the zone logic work well?
 
-1. **The highlight walks up the sizes and may advise a tiny bottle.** With closest-to-100 %, the highlight is effectively "the smallest size still in zone": on 24/10 it goes 30 (until 16:12) → 60 (until 16:34) → 90 (until 17:05) → 120. At 16:11 it advises **30 ml** although 60 and 90 are also in zone. The *switch times* equal Koen's expected 100 % times of the next-smaller size (nice: monotonic, never goes back), but a parent seeing "30 now" may under-feed. Possible refinements: restrict the candidates to sizes ≥ the last feed size − 1 step, or show the highlight as "best now" plus the preferred-size zone.
+1. **[Decided 2026-10-25 09:54 CET: keep closest to 100 %, §10]** **The highlight walks up the sizes and may advise a tiny bottle.** With closest-to-100 %, the highlight is effectively "the smallest size still in zone": on 24/10 it goes 30 (until 16:12) → 60 (until 16:34) → 90 (until 17:05) → 120. At 16:11 it advises **30 ml** although 60 and 90 are also in zone. The *switch times* equal Koen's expected 100 % times of the next-smaller size (nice: monotonic, never goes back), but a parent seeing "30 now" may under-feed. Possible refinements: restrict the candidates to sizes ≥ the last feed size − 1 step, or show the highlight as "best now" plus the preferred-size zone.
 2. **Deep-behind day (22/10, 78–88 %).** Almost every size collapsed all day; the timeline is a field of rings (○) with no bars — readable but uninformative. Collapsed rings only say "fits from S, lands p %"; a short bar from S to the next feed might read better (open question 2).
 3. **Non-standard volumes (70, 199, 107 ml)** cannot be judged against a zone (no row); 199 ml is above preferred + 1 and above the stomach cap × 1.1 (~185 ml) — the zone model has nothing to say about it. Proposal: snap to the nearest standard size for the verdict, or show "non-std".
 4. **Early feeds are common (8/26), mostly 2–15 min** — practically on time. A tolerance (open question 7) would turn most into "in zone". The 39-min early feed (23/10 17:13, 70 min after 16:03) is a top-up and correctly flagged.
@@ -271,6 +272,16 @@ Totals (26 feeds): in zone 10 · early 8 (6 vs the 105 % bound, 2–39 min; 2 "t
 6. **Night feeds** behave like day feeds (no special case needed); zones are just as valid at 02:00. Status at night feeds was 102–106 % on 23–24/10: the night feeds were on time or slightly early.
 7. **Status ≥ 105 % right after a feed** (e.g. 105.9 %, 107.4 %) is consistent with "early" verdicts — the rule correctly explains the yellow status.
 8. **Settings assumption** — replay before a settings change would be wrong; see the companion design *settings history* (separate PR).
+
+## 11c. Classic timeline (alternative view) — Koen amendment 2026-10-25 10:05 CET
+
+Koen, verbatim: *"Also fix the current timeline (100% only and remove the grey future points) and keep it as an alternative timeline view to be selected in the settings of the app"*
+
+1. **Fix the existing point-in-time timeline — 100 % only.** `intakeReadyAt` / readiness uses a single 100 % threshold. This removes the mixed rule where "give now" is checked at 105 % but the ready time is binary-searched at 100 % (`calculations.ts:491-506`).
+2. **Remove the grey ghost/future markers** (`CanTakeCard.tsx:304-332`) and the sort that orders them (`:347`).
+3. **Kept as an alternative to the zones timeline, chosen in the app settings.** Reuse the existing display-only key `feedingTimelineView` (already in the `settings.json` allowlist, PR #6 `PERSISTED_KEYS`) — no new key. Current type: `'timeline' | 'cards'`, default `'timeline'` when absent (`page.tsx:393`, `settings/page.tsx:241-243`); `'timeline'` = `CanTakeCard.tsx`, `'cards'` = `FeedingTimelineCards.tsx`. Proposal: add `'zones'` and make it the **default**; `'timeline'` becomes the fixed classic view; `'cards'` stays unless Koen drops it. Existing stored `'timeline'` values: migrate to `'zones'` once, or treat absent as `'zones'` (to decide at implementation).
+4. **Scope:** both products — web (`baby-milk-tracker`) and RN (`koenswings/milkwise`); version bump in both. The `calculations.ts` change is shared and goes through the **MilkWise Design Review** before implementation.
+5. **Invariant wording:** the "`intakeReadyAt` ≤ 105 %" invariant becomes 100 % for the classic view (105 % stays only as the zone-open bound). **The invariants doc must be updated** to reflect this.
 
 ## 12. Open questions for Koen (remaining)
 
