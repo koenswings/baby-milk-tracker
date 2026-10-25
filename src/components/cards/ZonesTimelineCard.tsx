@@ -8,17 +8,18 @@
 // the settings in effect at that feed. Exactly one size is emphasised (closest to 100 % in zone,
 // else the largest fitting size under target); other in-zone sizes are dimmed, not hidden.
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Feed, Settings } from "@/types";
 import { ZoneRow } from "@/lib/calculations";
 import { HistoryEntry } from "@/lib/settingsHistory";
 import { sizeColour } from "@/lib/sizeColours";
-import { zoneSegments } from "@/lib/zoneSegments";
+import { highlightSegmentsAt, zoneSegments } from "@/lib/zoneSegments";
 
 interface Props {
   feeds: Feed[];
   settings: Settings;
   history: HistoryEntry[];
+  weights: Array<{ timestamp: number; weightKg: number }>; // weigh-ins, for past-segment D
   weightKg: number;      // effective weight (same D as the status card)
   now: number;           // display clock: highlight and "now" line only
   timeFormat: "24h" | "12h";
@@ -50,7 +51,7 @@ function zoneLabel(r: ZoneRow, tf: "24h" | "12h"): string {
   return `${r.waterMl} ml ${fmtTime(r.openMs, tf)}–${fmtTime(r.closeMs!, tf)} · ${Math.round(r.landingAtOpenPct)}→100%`;
 }
 
-export default function ZonesTimelineCard({ feeds, settings, history, weightKg, now, timeFormat }: Props) {
+export default function ZonesTimelineCard({ feeds, settings, history, weights, weightKg, now, timeFormat }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [cardWidth, setCardWidth] = useState(340);
@@ -65,7 +66,13 @@ export default function ZonesTimelineCard({ feeds, settings, history, weightKg, 
   }, []);
 
   const dayStart = (() => { const d = new Date(now); d.setHours(0, 0, 0, 0); return d.getTime(); })();
-  const segments = zoneSegments(feeds, settings, history, weightKg, dayStart, now);
+  // Zones frozen at the last feed: recomputed only when the data changes (or the day rolls over),
+  // never on a clock tick. A tick re-runs only the highlight (§10).
+  const frozen = useMemo(
+    () => zoneSegments(feeds, settings, history, weights, weightKg, dayStart),
+    [feeds, settings, history, weights, weightKg, dayStart],
+  );
+  const segments = useMemo(() => highlightSegmentsAt(frozen, feeds, now), [frozen, feeds, now]);
   const current = segments.find((s) => s.isCurrent) ?? null;
 
   const sizes = [...new Set(segments.flatMap((s) => s.rows.map((r) => r.waterMl)))].sort((a, b) => a - b);

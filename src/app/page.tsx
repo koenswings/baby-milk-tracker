@@ -12,6 +12,7 @@ import {
   waterToMilk,
   milkToWater,
   computePredictors,
+  effectiveWeightKg as computeEffectiveWeight,
 } from "@/lib/calculations";
 import { Feed, Settings, DerivedSettings, PredictorResult } from "@/types";
 import Strict24hExplainer from "@/components/Strict24hExplainer";
@@ -24,7 +25,7 @@ import ZonesTimelineCard from "@/components/cards/ZonesTimelineCard";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
 import { formatTime } from "@/lib/formatTime";
-import { estimateZChannel, predictWeightKg } from "@/lib/whoGrowth";
+import { estimateZChannel } from "@/lib/whoGrowth";
 import { APP_VERSION } from "@/lib/version";
 
 function formatRelative(ms: number, now: number): string {
@@ -133,24 +134,13 @@ export default function Dashboard() {
 
   // WHO z-score and effective weight — computed FIRST so all calculations use correct D
   const startOfToday = (() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); })();
-  let effectiveWeightKg = settings.weightKg;
-  let zScore: number | null = null;
-  let weightSource: 'manual' | 'predicted' = 'manual';
-  if (settings.dateOfBirthMs && settings.sex && weights.length >= 1) {
-    zScore = estimateZChannel(weights, settings.dateOfBirthMs, settings.sex);
-    const latestWeight = [...weights].sort((a, b) => b.timestamp - a.timestamp)[0];
-    const daysSinceLastWeigh = (startOfToday - latestWeight.timestamp) / 86_400_000;
-    if (daysSinceLastWeigh <= 7) {
-      effectiveWeightKg = latestWeight.weightKg;
-      weightSource = 'manual';
-    } else {
-      const predicted = predictWeightKg(weights, settings.dateOfBirthMs, settings.sex, startOfToday);
-      if (predicted !== null && predicted > 0) {
-        effectiveWeightKg = predicted;
-        weightSource = 'predicted';
-      }
-    }
-  }
+  // Same rule as zone replay (effectiveWeightKg, shared block), evaluated at the start of today.
+  const eff = computeEffectiveWeight(weights, settings.weightKg, settings.dateOfBirthMs, settings.sex, startOfToday);
+  const effectiveWeightKg = eff.weightKg;
+  const weightSource: 'manual' | 'predicted' = eff.source === 'who' ? 'predicted' : 'manual';
+  const zScore: number | null = settings.dateOfBirthMs && settings.sex && weights.length >= 1
+    ? estimateZChannel(weights, settings.dateOfBirthMs, settings.sex)
+    : null;
   const effectiveDailyTargetMl = effectiveWeightKg * settings.mlPerKgPerDay;
   // Use effective weight for ALL calculations — this is the source of truth for D and hourlyRate
   const effectiveDerived = deriveSettings({ ...settings, weightKg: effectiveWeightKg });
@@ -399,6 +389,7 @@ export default function Dashboard() {
               feeds={feeds}
               settings={settings}
               history={settingsHistory}
+              weights={weights}
               weightKg={effectiveWeightKg}
               now={now}
               timeFormat={settings.timeFormat}
