@@ -11,7 +11,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     );
     writeWeights(weights);
     const sorted = [...weights].sort((a, b) => b.timestamp - a.timestamp);
-    if (sorted.length) { const s = readSettings(); s.weightKg = sorted[0].weightKg; writeSettings(s); }
+    if (sorted.length) { const s = readSettings(); s.weightKg = sorted[0].weightKg; writeSettings(s, 'weights-sync'); }
     return NextResponse.json({ ok: true });
   } catch(e) { return NextResponse.json({ error: String(e) }, { status: 500 }); }
 }
@@ -22,7 +22,7 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
     const weights = readWeights().filter(w => w.id !== params.id);
     writeWeights(weights);
     const sorted = [...weights].sort((a, b) => b.timestamp - a.timestamp);
-    if (sorted.length) { const s = readSettings(); s.weightKg = sorted[0].weightKg; writeSettings(s); }
+    if (sorted.length) { const s = readSettings(); s.weightKg = sorted[0].weightKg; writeSettings(s, 'weights-sync'); }
     return NextResponse.json({ ok: true });
   } catch(e) { return NextResponse.json({ error: String(e) }, { status: 500 }); }
 }

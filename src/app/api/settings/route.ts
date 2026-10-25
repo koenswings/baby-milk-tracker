@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readSettings, writeSettings } from "@/lib/server-store";
+import { sourceFromHeaders } from "@/lib/request-source";
 import { Settings } from "@/types";
 
 export async function GET() {
@@ -9,6 +10,6 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const settings = body as Settings;
-  writeSettings(settings);
+  writeSettings(settings, sourceFromHeaders(req.headers));
   return NextResponse.json({ ok: true });
 }

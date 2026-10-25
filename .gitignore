@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local data (DATA_DIR default ./data)
+/data/settings.json
+/data/weights.json
+/data/settings-history.jsonl
+/data/.*.tmp

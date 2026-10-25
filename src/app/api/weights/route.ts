@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   const sorted = [...weights].sort((a, b) => b.timestamp - a.timestamp);
   const settings = readSettings();
   settings.weightKg = sorted[0].weightKg;
-  writeSettings(settings);
+  writeSettings(settings, 'weights-sync');
   return NextResponse.json(entry);
   } catch(e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

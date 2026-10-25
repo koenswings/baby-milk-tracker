@@ -1,15 +1,19 @@
 import fs from "fs";
-import path from "path";
 import { Feed, Settings } from "@/types";
+import { dataFile, getDataDir } from "@/lib/data-dir";
+import { appendLineSync, writeFileAtomicSync } from "@/lib/atomic-write";
+import { APP_VERSION } from "@/lib/version";
+import {
+  HistoryEntry, HistorySource, diffLogged, isoWithOffset, parseHistory,
+  sameLogged, settingsAt, snapshotLogged, sortEntries,
+} from "@/lib/settingsHistory";
 
-// Data stored on the Pi filesystem, persists across restarts
-// Default to a directory outside the Next.js project root to prevent
-// Turbopack from watching data files and triggering hot reloads on every write.
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "../../data");
-const FEEDS_FILE = path.join(DATA_DIR, "feeds.json");
-const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+// Data directory: see src/lib/data-dir.ts (DATA_DIR env wins, default <cwd>/data).
+const feedsFile = () => dataFile("feeds.json");
+const settingsFile = () => dataFile("settings.json");
+export const historyFile = () => dataFile("settings-history.jsonl");
 
-const DEFAULT_SETTINGS: Settings = {
+export const DEFAULT_SETTINGS: Settings = {
   weightKg: 6.27,
   mlPerKgPerDay: 150,
   preferredBottleWaterMl: 90,
@@ -19,16 +23,15 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+  const dir = getDataDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 export function readFeeds(): Feed[] {
   ensureDir();
-  if (!fs.existsSync(FEEDS_FILE)) return [];
+  if (!fs.existsSync(feedsFile())) return [];
   try {
-    return JSON.parse(fs.readFileSync(FEEDS_FILE, "utf8")) as Feed[];
+    return JSON.parse(fs.readFileSync(feedsFile(), "utf8")) as Feed[];
   } catch {
     return [];
   }
@@ -36,22 +39,79 @@ export function readFeeds(): Feed[] {
 
 export function writeFeeds(feeds: Feed[]): void {
   ensureDir();
-  fs.writeFileSync(FEEDS_FILE, JSON.stringify(feeds), "utf8");
+  writeFileAtomicSync(feedsFile(), JSON.stringify(feeds));
 }
 
-export function readSettings(): Settings {
+/** Reads settings; `ok: false` when settings.json exists but is unreadable/corrupt. */
+function readSettingsWithStatus(): { settings: Settings; ok: boolean } {
   ensureDir();
-  if (!fs.existsSync(SETTINGS_FILE)) return DEFAULT_SETTINGS;
+  if (!fs.existsSync(settingsFile())) return { settings: { ...DEFAULT_SETTINGS }, ok: true };
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) };
+    return { settings: { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(settingsFile(), "utf8")) }, ok: true };
   } catch {
-    return DEFAULT_SETTINGS;
+    return { settings: { ...DEFAULT_SETTINGS }, ok: false };
   }
 }
 
-export function writeSettings(settings: Settings): void {
-  ensureDir();
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings), "utf8");
+export function readSettings(): Settings {
+  return readSettingsWithStatus().settings;
 }
 
+/**
+ * Persist settings. Fully synchronous: (1) read baseline, (2) append history line
+ * for changed allowlisted keys FIRST, (3) atomically replace settings.json.
+ */
+export function writeSettings(settings: Settings, source: HistorySource, now: Date = new Date()): void {
+  ensureDir();
+  const { settings: baseline, ok } = readSettingsWithStatus();
+  const changes = diffLogged(baseline, settings);
+  if (Object.keys(changes).length > 0) {
+    const at = isoWithOffset(now);
+    const entry: HistoryEntry = {
+      v: 1, kind: "diff", effectiveFrom: at, changedAt: at, source, appVersion: APP_VERSION,
+      ...(ok ? {} : { oldUnknown: true }),
+      changes,
+    };
+    appendLineSync(historyFile(), JSON.stringify(entry));
+  }
+  writeFileAtomicSync(settingsFile(), JSON.stringify(settings));
+}
 
+/** Read the JSONL history, skipping (and warning about) corrupt lines. File is never rewritten. */
+export function readSettingsHistory(): HistoryEntry[] {
+  ensureDir();
+  if (!fs.existsSync(historyFile())) return [];
+  return parseHistory(fs.readFileSync(historyFile(), "utf8"));
+}
+
+export function readSettingsHistorySorted(): HistoryEntry[] {
+  return sortEntries(readSettingsHistory());
+}
+
+/** Seed (missing history) or reconcile (history disagrees with settings.json). Returns what it did. */
+export function seedOrReconcileHistory(now: Date = new Date()): "seed" | "reconcile" | "none" {
+  ensureDir();
+  const current = readSettings();
+  const at = isoWithOffset(now);
+  const snap = (source: "seed" | "reconcile"): HistoryEntry => ({
+    v: 1, kind: "snapshot", effectiveFrom: at, changedAt: at, source, appVersion: APP_VERSION,
+    changes: snapshotLogged(current),
+  });
+  if (!fs.existsSync(historyFile())) {
+    appendLineSync(historyFile(), JSON.stringify(snap("seed")));
+    return "seed";
+  }
+  const replayed = settingsAt(readSettingsHistory(), current, now.getTime()).settings;
+  if (!sameLogged(replayed, current)) {
+    appendLineSync(historyFile(), JSON.stringify(snap("reconcile")));
+    return "reconcile";
+  }
+  return "none";
+}
+
+/** Called once at server start (src/instrumentation.ts). */
+export function initDataStore(log: (msg: string) => void = (m) => console.log(m)): void {
+  log(`[milkwise] DATA_DIR resolved to ${getDataDir()}`);
+  const r = seedOrReconcileHistory();
+  if (r !== "none") log(`[milkwise] settings history: appended ${r} snapshot`);
+}
