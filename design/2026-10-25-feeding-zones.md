@@ -259,14 +259,14 @@ On 24/10 the verdicts were: 09:12 ✓ in zone, 12:00 early, 14:30 early. On 16/1
 | 2026-10-24 12:00 | 120 | 105.4% | early | -7 |
 | 2026-10-24 14:30 | 120 | 105.1% | early | -2 |
 
-Totals (26 feeds): in zone 12 · early 7 (2–39 min; 2 of them "too early for the stomach", 2 and 5 min) · late 0 · ok-under 4 · non-standard size 4 (70, 199, 70, 107 ml).
+Totals (26 feeds): in zone 10 · early 8 (6 vs the 105 % bound, 2–39 min; 2 "too early for the stomach", 2 and 5 min) · late 0 · ok-under 4 · non-standard size 4 (70, 199, 70, 107 ml).
 
 ### Issues found — does the zone logic work well?
 
 1. **The highlight walks up the sizes and may advise a tiny bottle.** With closest-to-100 %, the highlight is effectively "the smallest size still in zone": on 24/10 it goes 30 (until 16:12) → 60 (until 16:34) → 90 (until 17:05) → 120. At 16:11 it advises **30 ml** although 60 and 90 are also in zone. The *switch times* equal Koen's expected 100 % times of the next-smaller size (nice: monotonic, never goes back), but a parent seeing "30 now" may under-feed. Possible refinements: restrict the candidates to sizes ≥ the last feed size − 1 step, or show the highlight as "best now" plus the preferred-size zone.
 2. **Deep-behind day (22/10, 78–88 %).** Almost every size collapsed all day; the timeline is a field of rings (○) with no bars — readable but uninformative. Collapsed rings only say "fits from S, lands p %"; a short bar from S to the next feed might read better (open question 2).
 3. **Non-standard volumes (70, 199, 107 ml)** cannot be judged against a zone (no row); 199 ml is above preferred + 1 and above the stomach cap × 1.1 (~185 ml) — the zone model has nothing to say about it. Proposal: snap to the nearest standard size for the verdict, or show "non-std".
-4. **Early feeds are common (7/26), mostly 2–15 min** — practically on time. A tolerance (open question 7) would turn most into "in zone". The 39-min early feed (23/10 17:13, 70 min after 16:03) is a top-up and correctly flagged.
+4. **Early feeds are common (8/26), mostly 2–15 min** — practically on time. A tolerance (open question 7) would turn most into "in zone". The 39-min early feed (23/10 17:13, 70 min after 16:03) is a top-up and correctly flagged.
 5. **Clutter on normal days.** 4–5 overlapping bars between feeds; with labels above bars the 3-day view at 24 h width is dense but readable at phone width only for ≤ 8 h windows. Proposal: in the app show only the current period plus dimmed past, scrollable, and hide labels of past zones.
 6. **Night feeds** behave like day feeds (no special case needed); zones are just as valid at 02:00. Status at night feeds was 102–106 % on 23–24/10: the night feeds were on time or slightly early.
 7. **Status ≥ 105 % right after a feed** (e.g. 105.9 %, 107.4 %) is consistent with "early" verdicts — the rule correctly explains the yellow status.
