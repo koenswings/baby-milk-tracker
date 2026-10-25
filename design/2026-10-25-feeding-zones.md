@@ -160,7 +160,7 @@ Example 2 — **22/10 19:15, 70 ml, status 96.0 % (−56 ml), intake flat for th
 
 Rules proposed for discussion:
 
-1. **Green = largest size whose zone contains now** (lands between 100 and 105 %). If none is in zone: if some sizes are collapsed and fit now → largest of them, labelled "under target"; otherwise nothing green and the next opening is shown.
+1. **Highlighted size (decided 2026-10-25, §10)** = among sizes whose zone contains now, the one whose landing % right now is **closest to 100 %** (= nearest its zone close); tie → the larger size. If no zone contains now: the **largest collapsed size that already fits the stomach** (it lands closest to 100 % from below), labelled "under target". Otherwise nothing is highlighted and the next zone opening is shown.
 2. **Noise-cut**: hide sizes whose zone is past, and optionally smaller sizes in zone (show only green + upcoming).
 3. **Labels**: bar from open to close; label `90 · 16:09–17:05`, with the close marked as "ideal".
 4. **No ghosts** — the bar's left end already says "since when".
@@ -198,6 +198,7 @@ Verifier (outside the repo, read-only): `/workspace/milkwise-verify/verify_zones
 | Date | Decision | By |
 |---|---|---|
 | 2026-10-25 08:45 CET | **Zone-open bound stays at 105 %** — it coincides with the yellow status band (`yellowThresholdPct` = 5), so "zone open" = "giving it now just stays out of yellow". | Koen |
+| 2026-10-25 08:52 CET | **Highlight = size whose landing % is closest to 100 %** when several zones contain now (i.e. the one nearest its zone close). Tie-break: larger size. Collapsed sizes only take part when no zone contains now: then the largest collapsed size that fits the stomach is highlighted ("under target"). Used in Figures D, F, G. | Koen |
 | 2026-10-25 08:45 CET | **Ceiling stays at preferred + 1 size** (120 → 150); larger sizes get no zone. | Koen |
 | 2026-10-25 (earlier) | Direction: 100 % is the consistent "ideal" rule (zone close); ghost markers to be dropped. | Koen (leaning, confirmed by this design) |
 
@@ -208,7 +209,7 @@ Verifier (outside the repo, read-only): `/workspace/milkwise-verify/verify_zones
 *Figure F — real data. Top: 24/10 08:00–18:00, now = 16:08. Bottom: 16/10 16:30–19:45 replayed with now = 18:30 (the behind-with-real-zones example of §4.3). Dark app style, per-size colours, start-% labels, feed lines, now line.*
 
 **11.1 One fixed colour per bottle size.** Every size keeps the same colour everywhere (timeline, history, settings, feed list). Proposed palette: Okabe-Ito, which stays distinguishable for the common colour-vision deficiencies — 30 orange `#E69F00`, 60 sky blue `#56B4E9`, 90 bluish green `#009E73`, 120 yellow `#F0E442`, 150 reddish purple `#CC79A7` (180/210 would get blue `#0072B2` / vermillion `#D55E00` if ever shown). Colour is never the only cue: bars always carry the size label.
-*Conflict with "green = can take now":* green would then just be "the 90 colour". Proposal: "now" becomes **emphasis on the size's own colour** — full saturation + white outline (or glow) + a bold label "90 ml · NOW" — while other bars are drawn at reduced opacity. Only the largest size in zone gets the emphasis (§5 rule 1). The status card keeps its green/yellow/red semantics; the timeline no longer uses green as a state.
+*Conflict with "green = can take now":* green would then just be "the 90 colour". Proposal: "now" becomes **emphasis on the size's own colour** — full saturation + white outline (or glow) + a bold label "90 ml · NOW" — while other bars are drawn at reduced opacity. Exactly one size gets the emphasis, chosen by the closest-to-100 % rule (§5 rule 1, decided 2026-10-25). The status card keeps its green/yellow/red semantics; the timeline no longer uses green as a state.
 
 **11.2 Starting percentage on each bar.** Label: `90 ml 16:09–17:05 · 105→100%`. The start % is the landing status when the zone opens: 105 % if the 105 % bound opens it, or the lower stomach-limited value (e.g. `102→100%`) when the stomach opens it. Collapsed sizes show a single landing value as a ring marker (e.g. `○ 94%`). The status at each feed line is printed under the feed label ("status 105%").
 
@@ -223,15 +224,62 @@ On 24/10 the verdicts were: 09:12 ✓ in zone, 12:00 early, 14:30 early. On 16/1
 
 **11.4 Data needed for historic replay.** Feeds (`feeds.json`, timestamped) and weigh-ins (`weights.json`, timestamped → measured / WHO weight per day, hence D) are stored, so zones can be replayed. **Not stored historically:** `preferredBottleWaterMl`, `mlPerKgPerDay`, the yellow/red thresholds, and DOB/sex edits — `settings.json` only holds current values. Replay therefore uses today's settings (the mockups use preferred = 120 throughout; the history scan in §4.3 has the same caveat). Options: (a) accept it (most settings rarely change); (b) store a small `settingsHistory` (timestamp + changed keys) on every settings save; (c) snapshot the computed zones / advice at each feed (`feed.adviceSnapshot`), which also captures app-version changes. Also note that editing or deleting a past weigh-in changes replayed history.
 
+## 11b. Three-day replay (22/10 00:00 – 24/10 16:11)
+
+![3-day replay](img/zones-g-3days.png)
+
+*Figure G — one panel per day, real data from the 24/10 snapshot. **Assumes today's settings** (preferred 120, 150 ml/kg/day, thresholds 5/10 %) for all three days — settings history is not stored (§11.4); D per day from weigh-ins/WHO. Highlight at now (16:11) per the decided rule.*
+
+| Feed | ml | Status after | Verdict (vs zone after previous feed) | Min early (−) / late (+) |
+|---|---|---|---|---|
+| 2026-10-22 00:01 | 120 | 77.9% | collapsed-ok | 0 |
+| 2026-10-22 02:31 | 120 | 81.5% | collapsed-ok | 0 |
+| 2026-10-22 05:15 | 120 | 82.8% | collapsed-ok | 0 |
+| 2026-10-22 08:46 | 70 | 75.1% | non-standard | 0 |
+| 2026-10-22 10:30 | 199 | 85.0% | non-standard | 0 |
+| 2026-10-22 14:40 | 120 | 81.3% | collapsed-ok | 0 |
+| 2026-10-22 16:12 | 120 | 87.7% | early(stomach) | -2 |
+| 2026-10-22 18:00 | 120 | 93.7% | early(stomach) | -5 |
+| 2026-10-22 19:15 | 70 | 96.0% | non-standard | 0 |
+| 2026-10-22 20:45 | 120 | 104.7% | early | -10 |
+| 2026-10-22 23:45 | 107 | 104.6% | non-standard | 0 |
+| 2026-10-23 02:01 | 120 | 105.9% | early | -15 |
+| 2026-10-23 05:55 | 120 | 101.7% | in-zone | 0 |
+| 2026-10-23 08:40 | 120 | 104.5% | in-zone | 0 |
+| 2026-10-23 11:40 | 120 | 103.6% | in-zone | 0 |
+| 2026-10-23 14:05 | 120 | 103.2% | in-zone | 0 |
+| 2026-10-23 16:03 | 120 | 105.9% | early | -11 |
+| 2026-10-23 17:13 | 120 | 107.4% | early | -39 |
+| 2026-10-23 19:52 | 120 | 101.3% | in-zone | 0 |
+| 2026-10-23 21:46 | 120 | 101.6% | in-zone | 0 |
+| 2026-10-24 00:11 | 120 | 103.9% | in-zone | 0 |
+| 2026-10-24 03:11 | 120 | 102.0% | in-zone | 0 |
+| 2026-10-24 06:30 | 120 | 104.4% | in-zone | 0 |
+| 2026-10-24 09:12 | 120 | 104.6% | in-zone | 0 |
+| 2026-10-24 12:00 | 120 | 105.4% | early | -7 |
+| 2026-10-24 14:30 | 120 | 105.1% | early | -2 |
+
+Totals (26 feeds): in zone 12 · early 7 (2–39 min; 2 of them "too early for the stomach", 2 and 5 min) · late 0 · ok-under 4 · non-standard size 4 (70, 199, 70, 107 ml).
+
+### Issues found — does the zone logic work well?
+
+1. **The highlight walks up the sizes and may advise a tiny bottle.** With closest-to-100 %, the highlight is effectively "the smallest size still in zone": on 24/10 it goes 30 (until 16:12) → 60 (until 16:34) → 90 (until 17:05) → 120. At 16:11 it advises **30 ml** although 60 and 90 are also in zone. The *switch times* equal Koen's expected 100 % times of the next-smaller size (nice: monotonic, never goes back), but a parent seeing "30 now" may under-feed. Possible refinements: restrict the candidates to sizes ≥ the last feed size − 1 step, or show the highlight as "best now" plus the preferred-size zone.
+2. **Deep-behind day (22/10, 78–88 %).** Almost every size collapsed all day; the timeline is a field of rings (○) with no bars — readable but uninformative. Collapsed rings only say "fits from S, lands p %"; a short bar from S to the next feed might read better (open question 2).
+3. **Non-standard volumes (70, 199, 107 ml)** cannot be judged against a zone (no row); 199 ml is above preferred + 1 and above the stomach cap × 1.1 (~185 ml) — the zone model has nothing to say about it. Proposal: snap to the nearest standard size for the verdict, or show "non-std".
+4. **Early feeds are common (7/26), mostly 2–15 min** — practically on time. A tolerance (open question 7) would turn most into "in zone". The 39-min early feed (23/10 17:13, 70 min after 16:03) is a top-up and correctly flagged.
+5. **Clutter on normal days.** 4–5 overlapping bars between feeds; with labels above bars the 3-day view at 24 h width is dense but readable at phone width only for ≤ 8 h windows. Proposal: in the app show only the current period plus dimmed past, scrollable, and hide labels of past zones.
+6. **Night feeds** behave like day feeds (no special case needed); zones are just as valid at 02:00. Status at night feeds was 102–106 % on 23–24/10: the night feeds were on time or slightly early.
+7. **Status ≥ 105 % right after a feed** (e.g. 105.9 %, 107.4 %) is consistent with "early" verdicts — the rule correctly explains the yellow status.
+8. **Settings assumption** — replay before a settings change would be wrong; see the companion design *settings history* (separate PR).
+
 ## 12. Open questions for Koen (remaining)
 
-1. Green when two zones overlap → now "emphasis": largest size in zone (proposed), or the one closest to its ideal close?
-2. Collapsed sizes when behind: show as ring + % (proposed), or as a short bar from S?
-3. Smaller sizes that are also in zone: show dimmed (as in Figure F) or hide (noise-cut)?
-4. Bars (Figures D/F) or points with "ok from" sub-labels?
-5. Palette: Okabe-Ito as proposed, or app-brand colours checked with a colour-blind simulator?
-6. How much past to keep visible (since midnight, last 24 h, scrollable all)?
-7. Verdict tolerance: should "early/late" by a few minutes count as in zone (e.g. ±10 min)?
-8. Historic replay: accept current settings, or add `settingsHistory` / per-feed advice snapshots (§11.4)?
+1. Collapsed sizes when behind: show as ring + % (proposed), or as a short bar from S?
+2. Smaller sizes that are also in zone: show dimmed (as in Figure F) or hide (noise-cut)?
+3. Bars (Figures D/F) or points with "ok from" sub-labels?
+4. Palette: Okabe-Ito as proposed, or app-brand colours checked with a colour-blind simulator?
+5. How much past to keep visible (since midnight, last 24 h, scrollable all)?
+6. Verdict tolerance: should "early/late" by a few minutes count as in zone (e.g. ±10 min)?
+7. Historic replay: accept current settings, or add `settingsHistory` / per-feed advice snapshots (§11.4)?
 
-*Closed: upper bound (105 %, §10) · ceiling (preferred + 1, §10).*
+*Closed: upper bound (105 %, §10) · ceiling (preferred + 1, §10) · highlight rule (closest to 100 %, §10).*
