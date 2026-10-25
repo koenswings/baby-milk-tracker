@@ -19,8 +19,7 @@ interface Props {
   feeds: Feed[];
   settings: Settings;
   history: HistoryEntry[];
-  weights: Array<{ timestamp: number; weightKg: number }>; // weigh-ins, for past-segment D
-  weightKg: number;      // effective weight (same D as the status card)
+  weights: Array<{ timestamp: number; weightKg: number }>; // weigh-ins: D per segment = weight at its feed
   now: number;           // display clock: highlight and "now" line only
   timeFormat: "24h" | "12h";
 }
@@ -51,7 +50,7 @@ function zoneLabel(r: ZoneRow, tf: "24h" | "12h"): string {
   return `${r.waterMl} ml ${fmtTime(r.openMs, tf)}–${fmtTime(r.closeMs!, tf)} · ${Math.round(r.landingAtOpenPct)}→100%`;
 }
 
-export default function ZonesTimelineCard({ feeds, settings, history, weights, weightKg, now, timeFormat }: Props) {
+export default function ZonesTimelineCard({ feeds, settings, history, weights, now, timeFormat }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [cardWidth, setCardWidth] = useState(340);
@@ -69,8 +68,8 @@ export default function ZonesTimelineCard({ feeds, settings, history, weights, w
   // Zones frozen at the last feed: recomputed only when the data changes (or the day rolls over),
   // never on a clock tick. A tick re-runs only the highlight (§10).
   const frozen = useMemo(
-    () => zoneSegments(feeds, settings, history, weights, weightKg, dayStart),
-    [feeds, settings, history, weights, weightKg, dayStart],
+    () => zoneSegments(feeds, settings, history, weights, dayStart),
+    [feeds, settings, history, weights, dayStart],
   );
   const segments = useMemo(() => highlightSegmentsAt(frozen, feeds, now), [frozen, feeds, now]);
   const current = segments.find((s) => s.isCurrent) ?? null;

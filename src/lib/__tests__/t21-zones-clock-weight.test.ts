@@ -3,8 +3,8 @@
 import fs from "fs";
 import path from "path";
 import fx from "./fixtures/snapshot-20261024.json";
-import { effectiveWeightKg, WEIGHT_FRESH_MS } from "@/lib/calculations";
-import { highlightSegmentsAt, zoneSegments } from "@/lib/zoneSegments";
+import { effectiveWeightKg, smoothedEffective, WEIGHT_FRESH_MS } from "@/lib/calculations";
+import { highlightSegmentsAt, statusWeight, zoneSegments } from "@/lib/zoneSegments";
 import { Feed, Settings } from "@/types";
 
 const D = fx.D;
@@ -24,7 +24,7 @@ describe("clock tick re-runs only the highlight", () => {
     jest.useFakeTimers({ now: at("16:00") });
     const fetchFeeds = jest.fn(() => feeds);
     const loaded = fetchFeeds();
-    const frozen = zoneSegments(loaded, current, [], [], D / 150, dayStart);
+    const frozen = zoneSegments(loaded, current, [], [], dayStart);
     let now = Date.now();
     const tick = jest.fn(() => { now = Date.now(); });      // what the dashboard interval does
     const id = setInterval(tick, 60_000);
@@ -39,12 +39,12 @@ describe("clock tick re-runs only the highlight", () => {
     jest.useRealTimers();
     expect(tick).toHaveBeenCalledTimes(90);
     expect(fetchFeeds).toHaveBeenCalledTimes(1);
-    expect(zoneSegments(loaded, current, [], [], D / 150, dayStart)).toEqual(frozen); // not mutated
+    expect(zoneSegments(loaded, current, [], [], dayStart)).toEqual(frozen); // not mutated
     expect(new Set(seen).size).toBeGreaterThan(1); // 16:01 → 17:30 walks 30 → 60 → 90 → 120
   });
 
   test("zoneSegments takes no display clock; the dashboard interval only sets now", () => {
-    expect(zoneSegments.length).toBe(6);
+    expect(zoneSegments.length).toBe(5);
     const src = fs.readFileSync(path.join(__dirname, "../../app/page.tsx"), "utf8");
     const intervals = src.match(/setInterval\([^;]*\)/g) ?? [];
     expect(intervals.length).toBeGreaterThan(0);
@@ -86,7 +86,7 @@ describe("effectiveWeightKg(refMs)", () => {
 describe("replay uses the weight at each past feed", () => {
   const morningFeed = at("09:12");
   const weights = [{ timestamp: morningFeed - 2 * DAY, weightKg: 6.0 }];
-  const seg = (ws: typeof weights) => zoneSegments(feeds, current, [], ws, D / 150, dayStart).find((s) => s.feed.timestamp === morningFeed)!;
+  const seg = (ws: typeof weights) => zoneSegments(feeds, current, [], ws, dayStart).find((s) => s.feed.timestamp === morningFeed)!;
 
   test("past segment D = effective weight at that feed", () => {
     const s = seg(weights);
@@ -99,8 +99,29 @@ describe("replay uses the weight at each past feed", () => {
     expect(after.dailyTargetMl).toBe(before.dailyTargetMl);
     expect(after.rows).toEqual(before.rows);
   });
-  test("current segment keeps the dashboard's D (same as the status card)", () => {
-    const segs = zoneSegments(feeds, current, [], weights, D / 150, dayStart);
-    expect(segs[segs.length - 1].dailyTargetMl).toBeCloseTo(D, 6);
+  const last = Math.max(...feeds.map((f) => f.timestamp));
+  const status = (fs: Feed[], ws: typeof weights) => {
+    const w = statusWeight(fs, current, ws, dayStart).weightKg;
+    const d = w * 150;
+    return { d, pct: (smoothedEffective(fs, d / 24, 120, Math.max(...fs.map((f) => f.timestamp))).totalMl / d) * 100 };
+  };
+  const curSeg = (fs: Feed[], ws: typeof weights) => { const s = zoneSegments(fs, current, [], ws, dayStart); return s[s.length - 1]; };
+
+  test("current segment and status card use the same weight (effective weight at lastFeed)", () => {
+    const ws = [{ timestamp: last - DAY, weightKg: 6.2 }];
+    expect(curSeg(feeds, ws).weightKg).toBe(6.2);
+    expect(curSeg(feeds, ws).dailyTargetMl).toBeCloseTo(status(feeds, ws).d, 9);
+    expect(curSeg(feeds, []).dailyTargetMl).toBeCloseTo(D, 6); // no weigh-ins → settings weight, like the card
+  });
+  test("a weigh-in after the last feed changes neither the current segment nor status; after a new feed it does", () => {
+    const ws = [{ timestamp: last - DAY, weightKg: 6.2 }];
+    const later = [...ws, { timestamp: last + 30 * 60_000, weightKg: 7.0 }];
+    expect(curSeg(feeds, later)).toEqual(curSeg(feeds, ws));
+    expect(status(feeds, later)).toEqual(status(feeds, ws));
+    const next: Feed[] = [...feeds, { id: "next", timestamp: last + 3 * 3_600_000, volume: 120 }];
+    expect(curSeg(next, later).weightKg).toBe(7.0);
+    expect(curSeg(next, later).dailyTargetMl).toBeCloseTo(1050, 9);
+    expect(status(next, later).d).toBeCloseTo(1050, 9);
+    expect(status(next, later).pct).not.toBeCloseTo(status(next, ws).pct, 3);
   });
 });

@@ -12,7 +12,6 @@ import {
   waterToMilk,
   milkToWater,
   computePredictors,
-  effectiveWeightKg as computeEffectiveWeight,
 } from "@/lib/calculations";
 import { Feed, Settings, DerivedSettings, PredictorResult } from "@/types";
 import Strict24hExplainer from "@/components/Strict24hExplainer";
@@ -25,6 +24,7 @@ import ZonesTimelineCard from "@/components/cards/ZonesTimelineCard";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
 import { formatTime } from "@/lib/formatTime";
+import { statusWeight } from "@/lib/zoneSegments";
 import { estimateZChannel } from "@/lib/whoGrowth";
 import { APP_VERSION } from "@/lib/version";
 
@@ -134,8 +134,9 @@ export default function Dashboard() {
 
   // WHO z-score and effective weight — computed FIRST so all calculations use correct D
   const startOfToday = (() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); })();
-  // Same rule as zone replay (effectiveWeightKg, shared block), evaluated at the start of today.
-  const eff = computeEffectiveWeight(weights, settings.weightKg, settings.dateOfBirthMs, settings.sex, startOfToday);
+  // Status is frozen at lastFeed.timestamp, so its weight is the effective weight at the last
+  // feed — the same weight as the current zone segment. A new weigh-in counts from the next feed.
+  const eff = statusWeight(feeds, settings, weights, startOfToday);
   const effectiveWeightKg = eff.weightKg;
   const weightSource: 'manual' | 'predicted' = eff.source === 'who' ? 'predicted' : 'manual';
   const zScore: number | null = settings.dateOfBirthMs && settings.sex && weights.length >= 1
@@ -390,7 +391,6 @@ export default function Dashboard() {
               settings={settings}
               history={settingsHistory}
               weights={weights}
-              weightKg={effectiveWeightKg}
               now={now}
               timeFormat={settings.timeFormat}
             />
