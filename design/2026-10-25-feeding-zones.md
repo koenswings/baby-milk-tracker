@@ -127,7 +127,7 @@ Overlaps: 30/60 28 min, 60/90 25 min, 90/120 35 min, 30/90 3 min, 60/120 4 min. 
 | 120 | 12:44 | 98.9 % | collapsed |
 | 150 | 14:28 | 94.1 % | collapsed |
 
-Here every size collapses, **not because she is behind but because the deficit is larger than every bottle at its stomach time**: D − I(S) ≥ 137 ml vs B = 35…135 ml for 30…120; for 150 (170 ml) the 3 h 24 min stomach wait lets I decay further (14:28: deficit ≈ 270 ml), so it also lands under 100 % (94.1 %).
+Here every size collapses, **not because she is behind but because the deficit is larger than every bottle at its stomach time**: D − I(S) ≥ 137 ml vs B = 35…135 ml for 30…120; for 150 (170 ml) the 3 h 24 min stomach wait lets I decay further (14:28: deficit ≈ 250 ml), so it also lands under 100 % (94.1 %).
 
 ![Gantt — behind](img/zones-c-gantt-behind.png)
 
