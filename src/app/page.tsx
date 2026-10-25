@@ -23,6 +23,7 @@ import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
 import { formatTime } from "@/lib/formatTime";
 import { estimateZChannel, predictWeightKg } from "@/lib/whoGrowth";
+import { APP_VERSION } from "@/lib/version";
 
 function formatRelative(ms: number, now: number): string {
   const diff = ms - now;
@@ -171,7 +172,7 @@ export default function Dashboard() {
       <div className="flex items-baseline justify-between mb-1">
         <h1 className="text-2xl font-bold text-slate-100">🍼 MilkWise</h1>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">v1.1.56</span>
+          <span className="text-xs text-slate-500">v{APP_VERSION}</span>
           <Link
             href="/info/app"
             className="w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 text-xs font-bold flex items-center justify-center leading-none"

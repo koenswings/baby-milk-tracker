@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS production wrapper */
 // Production start wrapper — sets env vars and launches the Next.js standalone server.
 // Ensures static assets are symlinked into the standalone directory before starting.
 
@@ -14,7 +15,11 @@ if (!fs.existsSync(staticDst)) {
   fs.cpSync(staticSrc, staticDst, { recursive: true });
 }
 
-process.env.DATA_DIR = '/home/node/workspace/agents/agent-app-dev/data';
+// DATA_DIR: an explicitly set env var always wins (production compose sets DATA_DIR=/app/data).
+// Only default when unset — same default as src/lib/data-dir.ts (<cwd>/data).
+if (!process.env.DATA_DIR) {
+  process.env.DATA_DIR = path.join(process.cwd(), 'data');
+}
 process.env.PORT = '3334'; // Internal port — Caddy proxies from 3333/80/443
 process.env.HOSTNAME = '0.0.0.0';
 require('./.next/standalone/server.js');
