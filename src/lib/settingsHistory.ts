@@ -14,6 +14,23 @@ export const LOGGED_KEYS = [
 ] as const;
 export type LoggedKey = (typeof LOGGED_KEYS)[number];
 
+/**
+ * Every key that may be persisted in settings.json: the logged (calculation) keys plus
+ * display-only preferences that are not logged. Single source of truth for the
+ * settings.json allowlist. targetMlPerDay is deprecated and must never appear here.
+ */
+export const PERSISTED_KEYS = [...LOGGED_KEYS, "timeFormat", "feedingTimelineView"] as const;
+export type PersistedKey = (typeof PERSISTED_KEYS)[number];
+
+/** Keep only allowlisted keys (drops unknown keys and targetMlPerDay). Never spread request bodies. */
+export function pickPersisted(input: unknown): Partial<Settings> {
+  const out: Record<string, unknown> = {};
+  if (!input || typeof input !== "object") return out as Partial<Settings>;
+  const src = input as Record<string, unknown>;
+  for (const k of PERSISTED_KEYS) if (src[k] !== undefined) out[k] = src[k];
+  return out as Partial<Settings>;
+}
+
 export type HistorySource =
   | "web" | "mobile" | "weights-sync" | "seed" | "reconcile" | "manual" | "mobile-offline";
 
