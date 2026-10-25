@@ -399,3 +399,58 @@ The stomach capacity is not a direct user setting; it is derived automatically f
 - **Next Feed card** (`NextFeedCard.tsx`) is a swipeable card. Views 0 and 2 show the standard interval time (rhythm anchor, no adjustments). Views 1 and 3 show the legacy adjusted next feed using `predictors.predictorBTimestamp`. The adjusted views remain available but are not the primary recommendation.
 - **Should Take card** is available in two layout modes: horizontal timeline (`CanTakeCard.tsx`) and card grid (`FeedingTimelineCards.tsx`). The user can toggle between them via `settings.feedingTimelineView`.
 - **§8.2 long-gap warning** is not implemented in the UI.
+
+---
+
+## 12. Addendum (2026-10-20) — Status card display details and verified examples
+
+> **Addendum added 2026-10-20 during a code review (PR #2).** It documents current behaviour (web 1.1.56 `e72acd1`, mobile 1.2.9 `e0020e3`) that §3 and §6 do not spell out. It changes no design. Formula references: §3.2 (intake), §3.4 (surplus), §6.1 (frozen at last feed).
+
+### 12.1 Display formula
+
+The "24h intake · at last feed" column shows three values computed from `intake(lastFeed.timestamp)` and `dailyTarget` (both unrounded):
+
+| Shown | Computation | Code |
+|---|---|---|
+| ml | `Math.round(intake)` | web `StatusCard.tsx:218`; mobile `DashboardScreen.tsx:159` |
+| % | `pct = intake / dailyTarget × 100`, shown as `Math.round(pct)` | web `page.tsx:164`, `StatusCard.tsx:221`; mobile `DashboardScreen.tsx:415,161` |
+| ±ml | `Math.abs(Math.round(pct/100 × dailyTarget − dailyTarget))` (= rounded surplus), prefixed `+` or `−` | web `StatusCard.tsx:188-189,223`; mobile `DashboardScreen.tsx:120-121,163` |
+| "on target" | replaces ±ml when `|pct − 100| < 1` | same lines |
+
+Colour and label (on track / slightly behind / behind ⚠️ …) use `|pct − 100|` against `yellowThresholdPct` (default 5) and `redThresholdPct` (default 10) (`StatusCard.tsx:30-47`).
+
+The intake value is `smoothedEffective(...)` (§3.2), **not** `strict24hTotal` (which feeds the separate "Strict 24h" view). `dailyTarget` uses the effective weight from [weight-compensation-design.md](weight-compensation-design.md).
+
+### 12.2 Worked example — partial credit of a decaying bottle
+
+2026-10-20 snapshot. Effective weight is the WHO prediction, 9.215 kg (last weigh-in 2026-09-24, more than 7 days old) → dailyTarget = 1382.3 ml, hourlyRate = 57.6 ml/h.
+
+The bottle given 19/10 07:00 (120 ml water = 135 ml formula) passes 24 h at 20/10 07:00 and reaches zero credit after a further 135 / 57.6 ≈ 2.34 h (~09:20). Evaluating intake at intermediate times T (feeds up to T only):
+
+| T (CEST) | age | credit = 135 − 57.6 × (age − 24) | intake | strict 24h | shown |
+|---|---|---|---|---|---|
+| 20/10 07:30 | 24.50 h | 106.20 | 1081.20 | 975.00 | 1081 ml · 78% · −301 ml |
+| 20/10 08:00 | 25.00 h | 77.40 | 1052.40 | 975.00 | 1052 ml · 76% · −330 ml |
+| 20/10 08:25 (a real feed) | 25.42 h | 53.41 | 1163.41 | 1110.00 | 1163 ml · 84% · −219 ml |
+| 20/10 09:15 | 26.25 h | 5.41 | 1115.41 | 1110.00 | 1115 ml · 81% · −267 ml |
+
+In each case intake − strict = that bottle's partial credit.
+
+### 12.3 Worked example — status shown 2026-10-20 11:04
+
+The app (web 1.1.56) displayed **1245 ml · 90% · −137 ml**. Last feed 20/10 11:04 CEST.
+
+| Feed (CEST) | water → formula | age at T | credit |
+|---|---|---|---|
+| 19/10 07:00 | 120 → 135 | 28.07 h | 0 (fully decayed) |
+| 19/10 12:30, 14:30, 19:43; 20/10 02:10, 05:05, 08:25, 11:04 | 7 × 120 → 135 | ≤ 24 h | 945 |
+| 19/10 17:03 | 180 → 200 | 18.02 h | 200 |
+| 19/10 22:15 | 90 → 100 | 12.82 h | 100 |
+| **intake** | | | **1245.0** |
+
+pct = 1245 / 1382.3 = 90.07 % → **90%**; ±ml = round(1245 − 1382.3) = **−137 ml**. Web `calculations.ts`, mobile `calculations.ts` and an independent reimplementation give identical results. The checker is `/workspace/milkwise-verify/verify_status.ts` on the agent box; it is not committed because it vendors copies of both repos' sources.
+
+### 12.4 Notes for Koen (flagged, not changed)
+
+- **§1 wording:** §1 describes the Status card as "a real-time view of 24h intake and current stomach room". Per §6.1 and the code, intake is **frozen at the last feed**; only stomach room is live. Suggest rewording §1, e.g. "24h intake at the last feed and current stomach room".
+- **data-architecture.md `DATA_DIR`:** it says the default is `../../data` for all data files. That holds for feeds/settings (`src/lib/server-store.ts:8`), but `src/lib/server-weights.ts:5` defaults to `./data`. So with `DATA_DIR` unset, weights.json is read from a different directory. Either the doc or the code needs correcting (see [2026-10-20-calculations-reconciliation.md](2026-10-20-calculations-reconciliation.md)).
