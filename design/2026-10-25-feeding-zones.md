@@ -202,6 +202,12 @@ Verifier (outside the repo, read-only): `/workspace/milkwise-verify/verify_zones
 | 2026-10-25 09:54 CET | **Highlight rule confirmed: stays 'closest to 100 %'** after reviewing Issue 1 below (small-bottle drift, e.g. 30 ml at 16:11). Alternative 'largest size in zone' rejected. | Koen |
 | 2026-10-25 08:45 CET | **Ceiling stays at preferred + 1 size** (120 → 150); larger sizes get no zone. | Koen |
 | 2026-10-25 (earlier) | Direction: 100 % is the consistent "ideal" rule (zone close); ghost markers to be dropped. | Koen (leaning, confirmed by this design) |
+| 2026-10-25 (impl. review) | **Zones are drawn as bars** (open → close, as in Figures D/F). A **ring** only marks a collapsed size (at the time it fits the stomach, labelled with its landing %). Answers §12 Q1 and Q3. | MilkWise Lead |
+| 2026-10-25 (impl. review) | **Smaller sizes still in their zone are dimmed, not hidden.** Answers §12 Q2. | MilkWise Lead |
+| 2026-10-25 (impl. review) | **History runs from midnight**; each actual feed is a vertical line that cuts the diagram, and the zones after it are recomputed with that feed and the settings in effect at that feed (`settingsForFeed`; current segment `settingsForReplay`, frozen at `lastFeed.timestamp`). Answers §12 Q5 and Q7. | MilkWise Lead |
+| 2026-10-25 (impl. review) | **No verdicts in the first implementation** (§11.3 in-zone/early/late markers and their tolerance, §12 Q6, are deferred; no `zoneVerdict`). | MilkWise Lead |
+| 2026-10-25 (impl. review) | **Highlight, as implemented:** in-zone size closest to 100 %, tie → larger; if none is in zone, the largest size that fits the stomach and lands ≤ 100 % now, labelled "under target"; otherwise none. **Palette:** Okabe-Ito per size (§11.1, §12 Q4). | MilkWise Lead |
+| 2026-10-25 (impl. review) | **View setting:** `feedingTimelineView` gains `'zones'` as the default; `'timeline'` is the classic view (100 % rule, no ghost markers, the `:347` time sort kept for the remaining markers); `'cards'` unchanged. A stored `'timeline'` is migrated to `'zones'` **once**, recorded by the display-only key `feedingTimelineViewMigrated`. | MilkWise Lead |
 
 ## 11. Proposed UI refinements (ideas from Koen, 2026-10-25 — proposed, not decided)
 
@@ -293,4 +299,4 @@ Koen, verbatim: *"Also fix the current timeline (100% only and remove the grey f
 6. Verdict tolerance: should "early/late" by a few minutes count as in zone (e.g. ±10 min)?
 7. Historic replay: accept current settings, or add `settingsHistory` / per-feed advice snapshots (§11.4)?
 
-*Closed: upper bound (105 %, §10) · ceiling (preferred + 1, §10) · highlight rule (closest to 100 %, §10).*
+*Closed: upper bound (105 %, §10) · ceiling (preferred + 1, §10) · highlight rule (closest to 100 %, §10) · Q1–Q5 and Q7 (impl. review, §10) · Q6 deferred with verdicts (§10).*

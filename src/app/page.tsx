@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getFeeds, getSettings, getWeights, addWeight, saveSettings, migrateFromLocalStorage } from "@/lib/store";
+import { getFeeds, getSettings, getWeights, getSettingsHistory, addWeight, saveSettings, migrateFromLocalStorage } from "@/lib/store";
+import type { HistoryEntry } from "@/lib/settingsHistory";
 import { WeightEntry } from "@/lib/weights";
 import {
   deriveSettings,
@@ -19,6 +20,7 @@ import DailyTargetCard from "@/components/cards/DailyTargetCard";
 import StatusCard from "@/components/cards/StatusCard";
 import CanTakeCard from "@/components/cards/CanTakeCard";
 import FeedingTimelineCards from "@/components/cards/FeedingTimelineCards";
+import ZonesTimelineCard from "@/components/cards/ZonesTimelineCard";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
 import { formatTime } from "@/lib/formatTime";
@@ -70,6 +72,7 @@ export default function Dashboard() {
   const [showStrictExplainer, setShowStrictExplainer] = useState(false);
   const [showSmoothedExplainer, setShowSmoothedExplainer] = useState(false);
   const [weights, setWeights] = useState<WeightEntry[]>([]);
+  const [settingsHistory, setSettingsHistory] = useState<HistoryEntry[]>([]);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [newWeightKg, setNewWeightKg] = useState('');
   const [newWeightTime, setNewWeightTime] = useState('');
@@ -81,7 +84,8 @@ export default function Dashboard() {
 
   const load = useCallback(async () => {
     await migrateFromLocalStorage();
-    const [f, s, w] = await Promise.all([getFeeds(), getSettings(), getWeights()]);
+    const [f, s, w, h] = await Promise.all([getFeeds(), getSettings(), getWeights(), getSettingsHistory()]);
+    setSettingsHistory(h);
     setFeeds(f);
     setSettings(s);
     const d = deriveSettings(s);
@@ -390,7 +394,16 @@ export default function Dashboard() {
       {/* Row 2: Feeding Timeline — enabled for evaluation */}
       {predictors && settings && derived && (
         <div className="mb-4">
-          {(settings.feedingTimelineView ?? 'timeline') === 'timeline' ? (
+          {(settings.feedingTimelineView ?? 'zones') === 'zones' ? (
+            <ZonesTimelineCard
+              feeds={feeds}
+              settings={settings}
+              history={settingsHistory}
+              weightKg={effectiveWeightKg}
+              now={now}
+              timeFormat={settings.timeFormat}
+            />
+          ) : settings.feedingTimelineView === 'timeline' ? (
             <CanTakeCard
               predictors={predictors}
               preferredBottleWaterMl={settings.preferredBottleWaterMl}

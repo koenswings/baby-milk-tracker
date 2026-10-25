@@ -57,7 +57,8 @@ A single `Settings` object. Always read as a merge over `DEFAULT_SETTINGS` so mi
 | `timeFormat` | '24h'\|'12h' | '24h' | Clock format for all time displays |
 | `dateOfBirthMs` | number? | — | Baby's date of birth in ms — enables WHO z-score growth model |
 | `sex` | 'M'\|'F'? | — | Baby's sex — enables WHO z-score growth model |
-| `feedingTimelineView` | 'timeline'\|'cards'? | — | Which view the Should Take card uses |
+| `feedingTimelineView` | 'zones'\|'timeline'\|'cards'? | 'zones' when absent | Which feeding timeline the dashboard shows: `zones` (default, feeding zones), `timeline` (classic point-in-time markers, 100 % rule), `cards`. Display only — persisted in `settings.json`, not logged in settings history. |
+| `feedingTimelineViewMigrated` | true? | — | Display-only marker (1.1.59). Set once when the server moves a stored `'timeline'` (or absent) view to `'zones'`; afterwards a user who picks the classic `'timeline'` keeps it. In the `settings.json` allowlist (`PERSISTED_KEYS`), **not** a logged history key; the server keeps it when a client posts settings without it. |
 
 `settings.weightKg` is a derived cache automatically kept in sync by the weights POST route. It is a legacy field. **No calculation reads it as the authoritative weight.** The effective weight used for the daily target is derived in `page.tsx` via the WHO LMS model (or the 7-day short-circuit rule if a recent measurement exists) — see `weight-compensation-design.md`.
 

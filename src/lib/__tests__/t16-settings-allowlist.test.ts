@@ -39,7 +39,7 @@ test("allowlisted keys round-trip", async () => {
   tmpDataDir();
   const full = {
     weightKg: 5.1, mlPerKgPerDay: 155, preferredBottleWaterMl: 120, yellowThresholdPct: 6,
-    redThresholdPct: 12, timeFormat: "12h", feedingTimelineView: "cards", dateOfBirthMs: 1750000000000, sex: "F",
+    redThresholdPct: 12, timeFormat: "12h", feedingTimelineView: "cards", feedingTimelineViewMigrated: true, dateOfBirthMs: 1750000000000, sex: "F",
   };
   await post(full);
   expect(onDisk()).toEqual(full);
