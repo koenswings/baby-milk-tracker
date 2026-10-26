@@ -347,12 +347,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Daily target card */}
-      <DailyTargetCard
-        settings={calc}
-        derived={derived}
-      />
-
       {/* Status card */}
       <StatusCard
         strict24h={strict24h}
@@ -424,6 +418,12 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      {/* Daily target card — below the timeline in every view (zones, classic, cards); 1.1.60 */}
+      <DailyTargetCard
+        settings={calc}
+        derived={derived}
+      />
 
       {/* Summary stats row */}
       <div className="grid grid-cols-3 gap-2">
