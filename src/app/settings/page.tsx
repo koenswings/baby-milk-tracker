@@ -234,18 +234,18 @@ export default function SettingsPage() {
         <div className="bg-slate-800 rounded-xl p-4">
           <label className="block text-sm text-slate-400 mb-2">📅 Feeding Timeline view</label>
           <div className="flex gap-2">
-            {(['timeline', 'cards'] as const).map((v) => (
+            {(['zones', 'timeline', 'cards'] as const).map((v) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => setSettings((prev) => ({ ...prev, feedingTimelineView: v }))}
                 className={`flex-1 py-3 rounded-lg font-semibold transition-colors capitalize ${
-                  (settings.feedingTimelineView ?? 'timeline') === v
+                  (settings.feedingTimelineView ?? 'zones') === v
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                 }`}
               >
-                {v === 'timeline' ? '📈 Timeline' : '📱 Cards'}
+                {v === 'zones' ? '🌈 Zones' : v === 'timeline' ? '📈 Classic' : '📱 Cards'}
               </button>
             ))}
           </div>

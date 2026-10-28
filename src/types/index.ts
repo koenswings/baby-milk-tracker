@@ -13,7 +13,8 @@ export interface Settings {
   yellowThresholdPct: number;      // default 5
   redThresholdPct: number;         // default 10
   timeFormat: '24h' | '12h';
-  feedingTimelineView?: 'timeline' | 'cards';
+  feedingTimelineView?: 'zones' | 'timeline' | 'cards'; // display only; absent = 'zones'
+  feedingTimelineViewMigrated?: true; // display-only marker: stored 'timeline' was moved to 'zones' once
   dateOfBirthMs?: number;
   sex?: 'M' | 'F';
 }

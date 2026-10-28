@@ -19,7 +19,7 @@ export type LoggedKey = (typeof LOGGED_KEYS)[number];
  * display-only preferences that are not logged. Single source of truth for the
  * settings.json allowlist. targetMlPerDay is deprecated and must never appear here.
  */
-export const PERSISTED_KEYS = [...LOGGED_KEYS, "timeFormat", "feedingTimelineView"] as const;
+export const PERSISTED_KEYS = [...LOGGED_KEYS, "timeFormat", "feedingTimelineView", "feedingTimelineViewMigrated"] as const;
 export type PersistedKey = (typeof PERSISTED_KEYS)[number];
 
 /** Keep only allowlisted keys (drops unknown keys and targetMlPerDay). Never spread request bodies. */
@@ -32,7 +32,7 @@ export function pickPersisted(input: unknown): Partial<Settings> {
 }
 
 export type HistorySource =
-  | "web" | "mobile" | "weights-sync" | "seed" | "reconcile" | "manual" | "mobile-offline";
+  | "web" | "mobile" | "weights-sync" | "seed" | "reconcile" | "manual" | "mobile-offline" | "migration";
 
 export interface Change { old?: unknown; new: unknown }
 

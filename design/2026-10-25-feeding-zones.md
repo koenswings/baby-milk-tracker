@@ -174,7 +174,7 @@ Rules proposed for discussion:
 - **Deep overfeed**: zones can be > 48 h away → reuse the 48 h cap from `intakeReadyAtMs` and show "later".
 - **Plateau (n = 0)**: zones stretch; no change to rules.
 - **DST / time zone**: all arithmetic is in epoch ms, so zones are exact across the DST switch (25/10 03:00 → 02:00 today); only labels and the hour ruler use local time (`fmtTime`, `fmtHour`). Check the ruler (`CanTakeCard.tsx:241-245` assumes `t % HOUR_MS === 0` is a full hour, which is only true in UTC-aligned offsets — fine for whole-hour offsets).
-- **Weight/target changes** (WHO weight at `startOfToday`): D changes at midnight → zones shift; recompute every render (already happens every minute, `page.tsx:109`).
+- **Weight/target changes**: superseded — D per segment uses `effectiveWeightKg` at that segment's feed time (§10, replay weight), so nothing shifts at midnight; the visible history is the rolling 24 h before now (§10, 2026-10-28).
 
 ## 7. Impact on invariants
 
@@ -202,6 +202,15 @@ Verifier (outside the repo, read-only): `/workspace/milkwise-verify/verify_zones
 | 2026-10-25 09:54 CET | **Highlight rule confirmed: stays 'closest to 100 %'** after reviewing Issue 1 below (small-bottle drift, e.g. 30 ml at 16:11). Alternative 'largest size in zone' rejected. | Koen |
 | 2026-10-25 08:45 CET | **Ceiling stays at preferred + 1 size** (120 → 150); larger sizes get no zone. | Koen |
 | 2026-10-25 (earlier) | Direction: 100 % is the consistent "ideal" rule (zone close); ghost markers to be dropped. | Koen (leaning, confirmed by this design) |
+| 2026-10-25 (impl. review) | **Zones are drawn as bars** (open → close, as in Figures D/F). A **ring** only marks a collapsed size (at the time it fits the stomach, labelled with its landing %). Answers §12 Q1 and Q3. | MilkWise Lead |
+| 2026-10-25 (impl. review) | **Smaller sizes still in their zone are dimmed, not hidden.** Answers §12 Q2. | MilkWise Lead |
+| 2026-10-28 | **History window = rolling 24 h before now** (replaces the 2026-10-25 "history runs from midnight" decision) for both the zones and the Classic view, on web and mobile. For Classic it replaces web's start "earlier of the oldest feed and now − 12 h" (`CanTakeCard` `T_START`) and mobile's "from midnight" (`classicFeedsToday`); mobile Classic's earlier-feeds list uses the same window. **The last feed is always marked:** if it is older than 24 h the window is **extended** to include it, i.e. `windowStart = min(now − 24 h, lastFeed.timestamp)` (rather than pinning a marker at the left edge). Reason: it is one `min()` in a single helper shared by both views; pinning would need a special marker position and a time label that disagrees with the axis. For zones this also keeps the current segment (which starts at the last feed) fully visible. (Lead, 2026-10-28.) Each actual feed is a vertical line that cuts the diagram; the zones after it are recomputed with that feed, the settings in effect at that feed (`settingsForFeed`) and `effectiveWeightKg` at that feed's own timestamp — also for segments whose feed lies before midnight. The window only decides **what is shown**: `now` enters solely as the visible start `now − 24 h`; segment calculations never take `now` (zones stay frozen at `lastFeed.timestamp`, highlight evaluated at now). A segment that straddles `now − 24 h` is **clipped** (drawn from `now − 24 h`), not dropped. Answers §12 Q5. | Koen |
+| 2026-10-25 (impl. review) | **No verdicts in the first implementation** (§11.3 in-zone/early/late markers and their tolerance, §12 Q6, are deferred; no `zoneVerdict`). | MilkWise Lead |
+| 2026-10-25 (impl. review) | **Highlight, as implemented:** in-zone size closest to 100 %, tie → larger; if none is in zone, the largest size that fits the stomach and lands ≤ 100 % now, labelled "under target"; otherwise none. **Palette:** Okabe-Ito per size (§11.1, §12 Q4). | MilkWise Lead |
+| 2026-10-25 (impl. review) | **View setting:** `feedingTimelineView` gains `'zones'` as the default; `'timeline'` is the classic view (100 % rule, no ghost markers, the `:347` time sort kept for the remaining markers); `'cards'` unchanged. A stored `'timeline'` is migrated to `'zones'` **once**, recorded by the display-only key `feedingTimelineViewMigrated`. | MilkWise Lead |
+| 2026-10-25 (PR review) | **Zones frozen at last feed, highlight evaluated now.** Zone open/close times are computed once from `refMs = lastFeed.timestamp` (`zoneSegments`, no clock input) and recomputed only when feeds, settings, history or weights change (the rolling 24 h window, 2026-10-28, only changes which segments are visible, never their times). A clock tick re-runs only the highlight (`highlightSegmentsAt` → `highlightZoneRows` at `atMs = now`) and never re-reads or reloads feeds. | MilkWise Lead |
+| 2026-10-25 (PR review) | **Replay weight:** each past segment's daily target uses `effectiveWeightKg(weights, …, refMs = feed.timestamp)` (shared block). Only weigh-ins at or before the feed count; the latest one is used directly if it is ≤ 7 days older than the feed (inclusive), otherwise the WHO model (when DOB and sex are known). The current segment uses the same rule at `lastFeed.timestamp`, and so does the frozen status card (`statusWeight`), so they never disagree; a new weigh-in takes effect from the next feed. | MilkWise Lead |
+| 2026-10-25 (PR review) | **All calculation parameters frozen at `lastFeed.timestamp`.** The status card (and the other dashboard calc cards) and the current zone segment both use `frozenCalcSettings`: `settingsForFeed` from the settings history at the last feed for ml/kg/day, preferred size, thresholds and every other calc param, plus `effectiveWeightKg` at that time. Any settings change or weigh-in after the last feed takes effect from the next feed. Only display-only keys (time format, timeline view) are read live. | MilkWise Lead |
 
 ## 11. Proposed UI refinements (ideas from Koen, 2026-10-25 — proposed, not decided)
 
@@ -289,8 +298,8 @@ Koen, verbatim: *"Also fix the current timeline (100% only and remove the grey f
 2. Smaller sizes that are also in zone: show dimmed (as in Figure F) or hide (noise-cut)?
 3. Bars (Figures D/F) or points with "ok from" sub-labels?
 4. Palette: Okabe-Ito as proposed, or app-brand colours checked with a colour-blind simulator?
-5. How much past to keep visible (since midnight, last 24 h, scrollable all)?
+5. How much past to keep visible (since midnight, last 24 h, scrollable all)? → **Rolling 24 h before now** (Koen, 2026-10-28, §10).
 6. Verdict tolerance: should "early/late" by a few minutes count as in zone (e.g. ±10 min)?
 7. Historic replay: accept current settings, or add `settingsHistory` / per-feed advice snapshots (§11.4)?
 
-*Closed: upper bound (105 %, §10) · ceiling (preferred + 1, §10) · highlight rule (closest to 100 %, §10).*
+*Closed: upper bound (105 %, §10) · ceiling (preferred + 1, §10) · highlight rule (closest to 100 %, §10) · Q1–Q5 and Q7 (impl. review, §10) · Q6 deferred with verdicts (§10).*

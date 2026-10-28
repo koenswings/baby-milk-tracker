@@ -54,8 +54,26 @@ function readSettingsWithStatus(): { settings: Settings; ok: boolean } {
   }
 }
 
+/**
+ * One-time display migration (feeding zones, design/2026-10-25-feeding-zones.md §10):
+ * a stored 'timeline' (or absent) view becomes 'zones' and feedingTimelineViewMigrated is set,
+ * so a user who later picks the classic 'timeline' keeps it. 'cards' is left alone.
+ * Pure: returns null when nothing needs to change.
+ */
+export function migrateTimelineView(s: Settings): Settings | null {
+  if (s.feedingTimelineViewMigrated) return null;
+  const view = s.feedingTimelineView === undefined || s.feedingTimelineView === 'timeline' ? 'zones' : s.feedingTimelineView;
+  return { ...s, feedingTimelineView: view, feedingTimelineViewMigrated: true };
+}
+
 export function readSettings(): Settings {
-  return readSettingsWithStatus().settings;
+  const { settings, ok } = readSettingsWithStatus();
+  // Only migrate an existing, readable settings.json (never overwrite a corrupt file).
+  if (!ok || !fs.existsSync(settingsFile())) return settings;
+  const migrated = migrateTimelineView(settings);
+  if (!migrated) return settings;
+  writeSettings(migrated, "migration");
+  return migrated;
 }
 
 /**
@@ -67,6 +85,10 @@ export function writeSettings(settings: Settings, source: HistorySource, now: Da
   const { settings: baseline, ok } = readSettingsWithStatus();
   // Allowlist: unknown keys and the deprecated targetMlPerDay never reach disk.
   const clean = pickPersisted(settings) as Settings;
+  // The migration marker is never dropped by a client that does not know it (e.g. older apps).
+  if (baseline.feedingTimelineViewMigrated && clean.feedingTimelineViewMigrated === undefined) {
+    clean.feedingTimelineViewMigrated = true;
+  }
   const changes = diffLogged(baseline, clean);
   if (Object.keys(changes).length > 0) {
     const at = isoWithOffset(now);

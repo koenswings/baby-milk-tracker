@@ -5,9 +5,10 @@ import Link from "next/link";
 import { Feed } from "@/types";
 import { PredictorResult } from "@/types";
 import {
-  canTakeProgression, waterToMilk, FORMULA_TABLE,
-  STOMACH_K, smoothedAtTime, stomachReadyAtMs,
+  canTakeProgression, waterToMilk, FORMULA_TABLE, STOMACH_K, smoothedAtTime,
 } from "@/lib/calculations";
+import { buildClassicMarkers } from "@/lib/classicMarkers";
+import { feedsInWindow, historyWindowStart } from "@/lib/zoneSegments";
 
 interface Props {
   predictors: PredictorResult;
@@ -52,33 +53,6 @@ function labelWidth(text: string, fs: number, withEmoji = false): number {
   return withEmoji ? base + fs * 1.1 : base;
 }
 
-// Ghost-specific: find earliest T where Math.round((smoothed(T) + milk)/D * 100) === 100
-// Threshold: smoothed < D*1.005 - milk - 0.1  (strictly below 100.5%)
-function ghostIntakeReadyAtMs(
-  feeds: Feed[],
-  bottleWaterMl: number,
-  hourlyRate: number,
-  dailyTargetMl: number,
-  refMs: number
-): number {
-  const milkMl = waterToMilk(bottleWaterMl);
-  const target = dailyTargetMl * 1.005 - milkMl - 0.1;
-  const current = smoothedAtTime(feeds, hourlyRate, refMs);
-  if (current <= target) return refMs;
-  const T_max = refMs + 48 * 3_600_000;
-  if (smoothedAtTime(feeds, hourlyRate, T_max) > target) return T_max;
-  let lo = refMs, hi = T_max;
-  for (let i = 0; i < 60; i++) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (smoothedAtTime(feeds, hourlyRate, mid) > target) lo = mid;
-    else hi = mid;
-    if (hi - lo < 60_000) break;
-  }
-  // hi is guaranteed to be ≤ target (shows 100%). Ceil to the next full minute so the
-  // displayed HH:MM is also guaranteed to be in the 100% zone (not a seconds-truncated 17:07:45).
-  return Math.ceil(hi / 60_000) * 60_000;
-}
-
 function gastricClearMs(feedTimestampMs: number, volumeWaterMl: number): number {
   const milkMl = waterToMilk(volumeWaterMl);
   const hours  = Math.log(Math.max(milkMl, NEAR_ZERO_ML + 0.1) / NEAR_ZERO_ML) / STOMACH_K;
@@ -103,7 +77,7 @@ export default function CanTakeCard({
   // User-controlled zoom multiplier (1.0 = default/auto scale)
   const [userScale, setUserScale]   = useState(1.0);
   const userScaleRef                = useRef(1.0);
-  userScaleRef.current              = userScale;
+  useEffect(() => { userScaleRef.current = userScale; }, [userScale]);
   // The timestamp (ms) pinned to the centre of the viewport during a drag.
   // Set on pointerdown, used after each scale change to reposition scrollLeft.
   const dragRef      = useRef<{ startX: number; startUS: number; didVibrate: boolean } | null>(null);
@@ -129,38 +103,7 @@ export default function CanTakeCard({
     ? feeds.reduce((a, b) => a.timestamp > b.timestamp ? a : b)
     : null;
 
-  // Ghost readyAt: for each bottle size, compute the earliest time it's available after last feed,
-  // using a round-aware threshold (100.5% boundary) for the intake component.
-  const ghostReadyAt = new Map<number, number>();
-  if (lastFeed) {
-    const bottleSizes = [...new Set([
-      ...progression.map(e => e.waterMl),
-      ...FORMULA_TABLE.map(e => e.water),
-    ])];
-    for (const waterMl of bottleSizes) {
-      const stomachMs = stomachReadyAtMs(feeds, waterMl, preferredBottleWaterMl, lastFeed.timestamp, hourlyRate);
-      const intakeMs = ghostIntakeReadyAtMs(feeds, waterMl, hourlyRate, dailyTargetMl, lastFeed.timestamp);
-      ghostReadyAt.set(waterMl, Math.max(stomachMs, intakeMs));
-    }
-  } else {
-    progression.forEach(e => ghostReadyAt.set(e.waterMl, e.readyAtMs));
-  }
-
-  // Enforce ascending order: ghost markers must appear left-to-right smallest-to-largest.
-  // When overfed, smaller bottles can compute a later ghost time than larger ones (they need
-  // more decay), which is backwards from parent expectation. Clamp each to be >= previous.
-  {
-    const orderedSizes = [...ghostReadyAt.keys()].sort((a, b) => a - b);
-    let prevGhostMs = 0;
-    for (const w of orderedSizes) {
-      const ghostMs = Math.max(ghostReadyAt.get(w)!, prevGhostMs);
-      ghostReadyAt.set(w, ghostMs);
-      prevGhostMs = ghostMs;
-    }
-  }
-
   const allFuture = progression.length > 0 && !progression.some(e => e.fitsNow);
-  const lastFeedIsNonStandard = lastFeed ? !STANDARD_SIZES.has(lastFeed.volume) : false;
 
   // Feeds sorted chronologically for band computation
   const sortedFeeds = [...feeds]
@@ -177,11 +120,10 @@ export default function CanTakeCard({
 
   // ── timeline bounds ───────────────────────────────────────────────────────────
 
-  const LOOKBACK_MS = 12 * 3_600_000;
-  const earliestFeed = feeds.length > 0
-    ? Math.min(...feeds.map(f => f.timestamp))
-    : now - LOOKBACK_MS;
-  const T_START = Math.min(earliestFeed, now - LOOKBACK_MS) - 20 * 60_000;
+  // Rolling 24 h window, extended to include the last feed (§10, 2026-10-28) — same as zones.
+  const windowStart = historyWindowStart(now, lastFeed ? lastFeed.timestamp : null);
+  const windowFeeds = feedsInWindow(feeds, windowStart);
+  const T_START = windowStart - 20 * 60_000;
 
   const latestProgression = progression.length > 0
     ? Math.max(...progression.map(e => e.readyAtMs))
@@ -273,76 +215,36 @@ export default function CanTakeCard({
 
   const allMarkers: MarkerData[] = [];
 
-  // Past feeds (all except most recent)
-  [...feeds]
-    .filter(f => f !== lastFeed)
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .forEach(f => {
-      const isNS = !STANDARD_SIZES.has(f.volume);
+  // Past feeds, last feed, "give now" and future (100 %) markers. (§11c: no grey "first available" markers.)
+  for (const m of buildClassicMarkers(progression, windowFeeds, preferredBottleWaterMl, now)) {
+    if (m.kind === 'past-feed' || m.kind === 'last-feed') {
+      const isNS = !STANDARD_SIZES.has(m.waterMl);
       allMarkers.push({
-        ms: f.timestamp, x: px(f.timestamp),
-        numStr: isNS ? `${Math.round(waterToMilk(f.volume))}` : `${f.volume}`,
+        ms: m.ms, x: px(m.ms),
+        numStr: isNS ? `${Math.round(waterToMilk(m.waterMl))}` : `${m.waterMl}`,
         showEmoji: !isNS,
-        header: '', time: fmtTime(f.timestamp, timeFormat),
+        header: m.kind === 'last-feed' ? 'Last Feed' : '', time: fmtTime(m.ms, timeFormat),
         dotColor: '#475569', labelColor: '#94a3b8', fillDot: true,
       });
-    });
-
-  // Last feed
-  if (lastFeed) {
-    const isNS = lastFeedIsNonStandard;
-    allMarkers.push({
-      ms: lastFeed.timestamp, x: px(lastFeed.timestamp),
-      numStr: isNS ? `${Math.round(waterToMilk(lastFeed.volume))}` : `${lastFeed.volume}`,
-      showEmoji: !isNS,
-      header: 'Last Feed', time: fmtTime(lastFeed.timestamp, timeFormat),
-      dotColor: '#475569', labelColor: '#94a3b8', fillDot: true,
-    });
-  }
-
-  // Progression markers — split into ghost, advised, and future
-  progression.forEach(e => {
-    if (e.isAdvised) {
-      // Ghost marker: positioned at when this size first became available after last feed
-      const ghostMs = ghostReadyAt.get(e.waterMl) ?? (lastFeed?.timestamp ?? e.readyAtMs);
-      allMarkers.push({
-        ms: ghostMs, x: px(ghostMs),
-        numStr: `${e.waterMl}`, showEmoji: true,
-        header: '', time: fmtTime(ghostMs, timeFormat),
-        dotColor: '#475569', labelColor: '#64748b',
-        fillDot: false,
-      });
-      // Advised marker: show at now (green, filled dot)
+    } else if (m.kind === 'advised') {
       allMarkers.push({
         ms: now, x: px(now),
-        numStr: `${e.waterMl}`, showEmoji: true,
+        numStr: `${m.waterMl}`, showEmoji: true,
         header: 'Give now', time: 'now',
         dotColor: '#4ade80', labelColor: '#4ade80',
         fillDot: true,
       });
-    } else if (e.fitsNow) {
-      // Ghost marker (fits now but not advised): positioned at when it first became available
-      const ghostMs = ghostReadyAt.get(e.waterMl) ?? (lastFeed?.timestamp ?? e.readyAtMs);
-      allMarkers.push({
-        ms: ghostMs, x: px(ghostMs),
-        numStr: `${e.waterMl}`, showEmoji: true,
-        header: '', time: fmtTime(ghostMs, timeFormat),
-        dotColor: '#475569', labelColor: '#64748b',
-        fillDot: false,
-      });
     } else {
-      // Future marker
-      const isAbove = e.waterMl > preferredBottleWaterMl;
       allMarkers.push({
-        ms: e.readyAtMs, x: px(e.readyAtMs),
-        numStr: `${e.waterMl}`, showEmoji: true,
-        header: '', time: fmtTime(e.readyAtMs, timeFormat),
-        dotColor:  isAbove ? '#2dd4bf' : '#f43f5e',
-        labelColor: isAbove ? '#2dd4bf' : '#f43f5e',
+        ms: m.ms, x: px(m.ms),
+        numStr: `${m.waterMl}`, showEmoji: true,
+        header: '', time: fmtTime(m.ms, timeFormat),
+        dotColor:  m.aboveBottle ? '#2dd4bf' : '#f43f5e',
+        labelColor: m.aboveBottle ? '#2dd4bf' : '#f43f5e',
         fillDot: false,
       });
     }
-  });
+  }
 
   allMarkers.sort((a, b) => a.ms - b.ms);
 
@@ -391,7 +293,6 @@ export default function CanTakeCard({
       // centrePx = PAD/2 + (ms - T_START) * scale  =>  ms = T_START + (centrePx - PAD/2) / scale
       pinnedMsRef.current = T_START + (centrePx - PAD / 2) / (defaultScale * userScaleRef.current);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [T_START, defaultScale]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {

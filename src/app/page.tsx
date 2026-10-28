@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getFeeds, getSettings, getWeights, addWeight, saveSettings, migrateFromLocalStorage } from "@/lib/store";
+import { getFeeds, getSettings, getWeights, getSettingsHistory, addWeight, saveSettings, migrateFromLocalStorage } from "@/lib/store";
+import type { HistoryEntry } from "@/lib/settingsHistory";
 import { WeightEntry } from "@/lib/weights";
 import {
   deriveSettings,
@@ -19,10 +20,12 @@ import DailyTargetCard from "@/components/cards/DailyTargetCard";
 import StatusCard from "@/components/cards/StatusCard";
 import CanTakeCard from "@/components/cards/CanTakeCard";
 import FeedingTimelineCards from "@/components/cards/FeedingTimelineCards";
+import ZonesTimelineCard from "@/components/cards/ZonesTimelineCard";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
 import { formatTime } from "@/lib/formatTime";
-import { estimateZChannel, predictWeightKg } from "@/lib/whoGrowth";
+import { frozenCalcSettings } from "@/lib/zoneSegments";
+import { estimateZChannel } from "@/lib/whoGrowth";
 import { APP_VERSION } from "@/lib/version";
 
 function formatRelative(ms: number, now: number): string {
@@ -70,26 +73,34 @@ export default function Dashboard() {
   const [showStrictExplainer, setShowStrictExplainer] = useState(false);
   const [showSmoothedExplainer, setShowSmoothedExplainer] = useState(false);
   const [weights, setWeights] = useState<WeightEntry[]>([]);
+  const [settingsHistory, setSettingsHistory] = useState<HistoryEntry[]>([]);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [newWeightKg, setNewWeightKg] = useState('');
   const [newWeightTime, setNewWeightTime] = useState('');
   const [showBottlePicker, setShowBottlePicker] = useState(false);
   const [predictors, setPredictors] = useState<PredictorResult | null>(null);
   const [showBabyProfile, setShowBabyProfile] = useState(false);
+  // noFeedRefMs for frozenCalcSettings (only used with no feeds): the load time — data-only, never the tick clock.
+  const [loadedAtMs, setLoadedAtMs] = useState(0);
   const [profileSex, setProfileSex] = useState<'F' | 'M' | null>(null);
   const [profileDob, setProfileDob] = useState('');
 
   const load = useCallback(async () => {
     await migrateFromLocalStorage();
-    const [f, s, w] = await Promise.all([getFeeds(), getSettings(), getWeights()]);
+    const [f, s, w, h] = await Promise.all([getFeeds(), getSettings(), getWeights(), getSettingsHistory()]);
+    setSettingsHistory(h);
     setFeeds(f);
     setSettings(s);
-    const d = deriveSettings(s);
+    // Calc params frozen at the last feed (settings history + effective weight), like the status card.
+    const loadedAt = Date.now();
+    setLoadedAtMs(loadedAt);
+    const fc = frozenCalcSettings(f, s, h, w, loadedAt).settings;
+    const d = deriveSettings(fc);
     setDerived(d);
     setWeights(w);
     setNow(Date.now());
     // Compute predictors
-    const preds = computePredictors(f, d.hourlyRate, d.dailyTargetMl, s.preferredBottleWaterMl);
+    const preds = computePredictors(f, d.hourlyRate, d.dailyTargetMl, fc.preferredBottleWaterMl);
     setPredictors(preds);
     // Show baby profile onboarding if DOB or sex is missing
     if (!s.dateOfBirthMs || !s.sex) {
@@ -128,28 +139,21 @@ export default function Dashboard() {
     : null;
 
   // WHO z-score and effective weight — computed FIRST so all calculations use correct D
-  const startOfToday = (() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); })();
-  let effectiveWeightKg = settings.weightKg;
-  let zScore: number | null = null;
-  let weightSource: 'manual' | 'predicted' = 'manual';
-  if (settings.dateOfBirthMs && settings.sex && weights.length >= 1) {
-    zScore = estimateZChannel(weights, settings.dateOfBirthMs, settings.sex);
-    const latestWeight = [...weights].sort((a, b) => b.timestamp - a.timestamp)[0];
-    const daysSinceLastWeigh = (startOfToday - latestWeight.timestamp) / 86_400_000;
-    if (daysSinceLastWeigh <= 7) {
-      effectiveWeightKg = latestWeight.weightKg;
-      weightSource = 'manual';
-    } else {
-      const predicted = predictWeightKg(weights, settings.dateOfBirthMs, settings.sex, startOfToday);
-      if (predicted !== null && predicted > 0) {
-        effectiveWeightKg = predicted;
-        weightSource = 'predicted';
-      }
-    }
-  }
-  const effectiveDailyTargetMl = effectiveWeightKg * settings.mlPerKgPerDay;
+  // Status is frozen at lastFeed.timestamp, so its weight is the effective weight at the last
+  // feed — the same weight as the current zone segment. A new weigh-in counts from the next feed.
+  // Every calculation parameter (ml/kg/day, preferred size, thresholds, weight, …) is frozen at
+  // lastFeed.timestamp — the same frozenCalcSettings the current zone segment uses. Live `settings`
+  // is only used for display-only keys and the settings controls.
+  const fc = frozenCalcSettings(feeds, settings, settingsHistory, weights, loadedAtMs);
+  const calc = fc.settings;
+  const effectiveWeightKg = fc.weightKg;
+  const weightSource: 'manual' | 'predicted' = fc.weightSource === 'who' ? 'predicted' : 'manual';
+  const zScore: number | null = settings.dateOfBirthMs && settings.sex && weights.length >= 1
+    ? estimateZChannel(weights, settings.dateOfBirthMs, settings.sex)
+    : null;
+  const effectiveDailyTargetMl = effectiveWeightKg * calc.mlPerKgPerDay;
   // Use effective weight for ALL calculations — this is the source of truth for D and hourlyRate
-  const effectiveDerived = deriveSettings({ ...settings, weightKg: effectiveWeightKg });
+  const effectiveDerived = deriveSettings(calc);
 
   const smoothedAt = lastFeed ? lastFeed.timestamp : now;
   const strict24h = strict24hTotal(feeds, smoothedAt);
@@ -158,7 +162,7 @@ export default function Dashboard() {
   const { totalMl: smoothedMl } = smoothedEffective(
     feeds,
     effectiveDerived.hourlyRate,
-    settings.preferredBottleWaterMl,
+    calc.preferredBottleWaterMl,
     smoothedAt
   );
   const strict24hPct = (strict24h / effectiveDerived.dailyTargetMl) * 100;
@@ -345,12 +349,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Daily target card */}
-      <DailyTargetCard
-        settings={settings}
-        derived={derived}
-      />
-
       {/* Status card */}
       <StatusCard
         strict24h={strict24h}
@@ -360,10 +358,10 @@ export default function Dashboard() {
         liveSmoothedMl={liveSmoothedMl}
         liveSmoothedPct={liveSmoothedPct}
         dailyTargetMl={effectiveDerived.dailyTargetMl}
-        standardBottleVolume={settings.preferredBottleWaterMl}
+        standardBottleVolume={calc.preferredBottleWaterMl}
         hourlyRate={effectiveDerived.hourlyRate}
-        yellowThresholdPct={settings.yellowThresholdPct}
-        redThresholdPct={settings.redThresholdPct}
+        yellowThresholdPct={calc.yellowThresholdPct}
+        redThresholdPct={calc.redThresholdPct}
         onStrictExplain={() => setShowStrictExplainer(true)}
         onSmoothedExplain={() => setShowSmoothedExplainer(true)}
         feeds={feeds}
@@ -378,7 +376,7 @@ export default function Dashboard() {
         <SmoothedExplainer
           onClose={() => setShowSmoothedExplainer(false)}
           hourlyRate={effectiveDerived.hourlyRate}
-          preferredBottleWaterMl={settings.preferredBottleWaterMl}
+          preferredBottleWaterMl={calc.preferredBottleWaterMl}
           dailyTargetMl={effectiveDerived.dailyTargetMl}
           feeds={feeds}
           now={smoothedAt}
@@ -390,10 +388,19 @@ export default function Dashboard() {
       {/* Row 2: Feeding Timeline — enabled for evaluation */}
       {predictors && settings && derived && (
         <div className="mb-4">
-          {(settings.feedingTimelineView ?? 'timeline') === 'timeline' ? (
+          {(settings.feedingTimelineView ?? 'zones') === 'zones' ? (
+            <ZonesTimelineCard
+              feeds={feeds}
+              settings={settings}
+              history={settingsHistory}
+              weights={weights}
+              now={now}
+              timeFormat={settings.timeFormat}
+            />
+          ) : settings.feedingTimelineView === 'timeline' ? (
             <CanTakeCard
               predictors={predictors}
-              preferredBottleWaterMl={settings.preferredBottleWaterMl}
+              preferredBottleWaterMl={calc.preferredBottleWaterMl}
               feeds={feeds}
               now={now}
               hourlyRate={effectiveDerived.hourlyRate}
@@ -403,7 +410,7 @@ export default function Dashboard() {
           ) : (
             <FeedingTimelineCards
               predictors={predictors}
-              preferredBottleWaterMl={settings.preferredBottleWaterMl}
+              preferredBottleWaterMl={calc.preferredBottleWaterMl}
               feeds={feeds}
               now={now}
               hourlyRate={effectiveDerived.hourlyRate}
@@ -413,6 +420,12 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      {/* Daily target card — below the timeline in every view (zones, classic, cards); 1.1.60 */}
+      <DailyTargetCard
+        settings={calc}
+        derived={derived}
+      />
 
       {/* Summary stats row */}
       <div className="grid grid-cols-3 gap-2">
