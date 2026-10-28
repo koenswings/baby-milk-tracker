@@ -8,6 +8,7 @@ import {
   canTakeProgression, waterToMilk, FORMULA_TABLE, STOMACH_K, smoothedAtTime,
 } from "@/lib/calculations";
 import { buildClassicMarkers } from "@/lib/classicMarkers";
+import { feedsInWindow, historyWindowStart } from "@/lib/zoneSegments";
 
 interface Props {
   predictors: PredictorResult;
@@ -119,11 +120,10 @@ export default function CanTakeCard({
 
   // ── timeline bounds ───────────────────────────────────────────────────────────
 
-  const LOOKBACK_MS = 12 * 3_600_000;
-  const earliestFeed = feeds.length > 0
-    ? Math.min(...feeds.map(f => f.timestamp))
-    : now - LOOKBACK_MS;
-  const T_START = Math.min(earliestFeed, now - LOOKBACK_MS) - 20 * 60_000;
+  // Rolling 24 h window, extended to include the last feed (§10, 2026-10-28) — same as zones.
+  const windowStart = historyWindowStart(now, lastFeed ? lastFeed.timestamp : null);
+  const windowFeeds = feedsInWindow(feeds, windowStart);
+  const T_START = windowStart - 20 * 60_000;
 
   const latestProgression = progression.length > 0
     ? Math.max(...progression.map(e => e.readyAtMs))
@@ -216,7 +216,7 @@ export default function CanTakeCard({
   const allMarkers: MarkerData[] = [];
 
   // Past feeds, last feed, "give now" and future (100 %) markers. (§11c: no grey "first available" markers.)
-  for (const m of buildClassicMarkers(progression, feeds, preferredBottleWaterMl, now)) {
+  for (const m of buildClassicMarkers(progression, windowFeeds, preferredBottleWaterMl, now)) {
     if (m.kind === 'past-feed' || m.kind === 'last-feed') {
       const isNS = !STANDARD_SIZES.has(m.waterMl);
       allMarkers.push({

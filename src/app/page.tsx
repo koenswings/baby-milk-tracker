@@ -80,6 +80,8 @@ export default function Dashboard() {
   const [showBottlePicker, setShowBottlePicker] = useState(false);
   const [predictors, setPredictors] = useState<PredictorResult | null>(null);
   const [showBabyProfile, setShowBabyProfile] = useState(false);
+  // noFeedRefMs for frozenCalcSettings (only used with no feeds): the load time — data-only, never the tick clock.
+  const [loadedAtMs, setLoadedAtMs] = useState(0);
   const [profileSex, setProfileSex] = useState<'F' | 'M' | null>(null);
   const [profileDob, setProfileDob] = useState('');
 
@@ -90,8 +92,9 @@ export default function Dashboard() {
     setFeeds(f);
     setSettings(s);
     // Calc params frozen at the last feed (settings history + effective weight), like the status card.
-    const startOfLoadDay = (() => { const x = new Date(); x.setHours(0, 0, 0, 0); return x.getTime(); })();
-    const fc = frozenCalcSettings(f, s, h, w, startOfLoadDay).settings;
+    const loadedAt = Date.now();
+    setLoadedAtMs(loadedAt);
+    const fc = frozenCalcSettings(f, s, h, w, loadedAt).settings;
     const d = deriveSettings(fc);
     setDerived(d);
     setWeights(w);
@@ -136,13 +139,12 @@ export default function Dashboard() {
     : null;
 
   // WHO z-score and effective weight — computed FIRST so all calculations use correct D
-  const startOfToday = (() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); })();
   // Status is frozen at lastFeed.timestamp, so its weight is the effective weight at the last
   // feed — the same weight as the current zone segment. A new weigh-in counts from the next feed.
   // Every calculation parameter (ml/kg/day, preferred size, thresholds, weight, …) is frozen at
   // lastFeed.timestamp — the same frozenCalcSettings the current zone segment uses. Live `settings`
   // is only used for display-only keys and the settings controls.
-  const fc = frozenCalcSettings(feeds, settings, settingsHistory, weights, startOfToday);
+  const fc = frozenCalcSettings(feeds, settings, settingsHistory, weights, loadedAtMs);
   const calc = fc.settings;
   const effectiveWeightKg = fc.weightKg;
   const weightSource: 'manual' | 'predicted' = fc.weightSource === 'who' ? 'predicted' : 'manual';

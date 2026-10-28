@@ -13,7 +13,7 @@ import { Feed, Settings } from "@/types";
 import { ZoneRow } from "@/lib/calculations";
 import { HistoryEntry } from "@/lib/settingsHistory";
 import { sizeColour } from "@/lib/sizeColours";
-import { highlightSegmentsAt, zoneSegments } from "@/lib/zoneSegments";
+import { highlightSegmentsAt, zoneSegments, historyWindowStart, segmentsFromMs, visibleSegments } from "@/lib/zoneSegments";
 
 interface Props {
   feeds: Feed[];
@@ -64,21 +64,26 @@ export default function ZonesTimelineCard({ feeds, settings, history, weights, n
     return () => obs.disconnect();
   }, []);
 
-  const dayStart = (() => { const d = new Date(now); d.setHours(0, 0, 0, 0); return d.getTime(); })();
-  // Zones frozen at the last feed: recomputed only when the data changes (or the day rolls over),
-  // never on a clock tick. A tick re-runs only the highlight (§10).
+  // Zones frozen at the last feed: built from lastFeed − 24 h and recomputed only when the data
+  // changes, never on a clock tick. A tick re-runs only the highlight and the window clip (§10).
+  const segFromMs = segmentsFromMs(feeds);                      // lastFeed − 24 h: data only
   const frozen = useMemo(
-    () => zoneSegments(feeds, settings, history, weights, dayStart),
-    [feeds, settings, history, weights, dayStart],
+    () => zoneSegments(feeds, settings, history, weights, segFromMs),
+    [feeds, settings, history, weights, segFromMs],
   );
-  const segments = useMemo(() => highlightSegmentsAt(frozen, feeds, now), [frozen, feeds, now]);
+  const lastFeedMs = feeds.length > 0 ? Math.max(...feeds.map((f) => f.timestamp)) : null;
+  const windowStart = historyWindowStart(now, lastFeedMs);   // rolling 24 h, extended to the last feed
+  const segments = useMemo(
+    () => visibleSegments(highlightSegmentsAt(frozen, feeds, now), windowStart),
+    [frozen, feeds, now, windowStart],
+  );
   const current = segments.find((s) => s.isCurrent) ?? null;
 
   const sizes = [...new Set(segments.flatMap((s) => s.rows.map((r) => r.waterMl)))].sort((a, b) => a - b);
   const rowIndex = new Map(sizes.map((w, i) => [w, i]));
 
   // ── time bounds ──
-  const T_START = Math.min(dayStart, segments[0]?.fromMs ?? dayStart);
+  const T_START = windowStart;
   const currentEnds = current
     ? current.rows.filter((r) => r.state !== "beyond-horizon").map((r) => r.closeMs ?? r.openMs)
     : [];
