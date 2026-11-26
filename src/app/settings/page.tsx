@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { getSettings, saveSettings, getFeeds, saveFeeds, generateId } from "@/lib/store";
 import { deriveSettings, waterToMilk } from "@/lib/calculations";
 import { Settings, Feed } from "@/types";
@@ -8,6 +8,7 @@ import BottomNav from "@/components/BottomNav";
 import { useRouter } from "next/navigation";
 
 import { APP_VERSION } from "@/lib/version";
+import { NumericSettingKey, SETTING_LIMITS, parseSettingValue, thresholdsError } from "@/lib/settingsLimits";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({
@@ -21,6 +22,8 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [localValues, setLocalValues] = useState<Partial<Record<keyof Settings, string>>>({});
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof Settings, string>>>({});
+  const [dobLocal, setDobLocal] = useState<string | null>(null);
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -30,44 +33,81 @@ export default function SettingsPage() {
     getSettings().then(s => { setSettings(s); setIsLoaded(true); });
   }, []);
 
-  // Auto-save with 500ms debounce whenever settings change (after initial load)
-  useEffect(() => {
-    if (!isLoaded) return;
-    const t = setTimeout(() => {
-      saveSettings(settings).then(() => {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1200);
-      });
-    }, 500);
-    return () => clearTimeout(t);
-  }, [settings, isLoaded]);
-
   const derived = deriveSettings(settings);
 
-  async function handleSave() {
-    await saveSettings(settings);
+  // Save only on a committed change (blur / Enter on a number field, a button tap) — never while
+  // typing, so no intermediate value (150 → 1 → 80) reaches settings-history.jsonl (2026-11-26 §10).
+  async function commit(next: Settings) {
+    if (!isLoaded) return; // never save the placeholder defaults over the stored settings
+    setSettings(next);
+    await saveSettings(next);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 1200);
   }
 
-  function handleChange(field: keyof Settings, value: string) {
+  function update(patch: Partial<Settings>) {
+    commit({ ...settings, ...patch });
+  }
+
+  function handleChange(field: NumericSettingKey, value: string) {
     setLocalValues((prev) => ({ ...prev, [field]: value }));
-    const num = parseFloat(value);
-    if (!isNaN(num) && num > 0) {
-      setSettings((prev) => ({ ...prev, [field]: num }));
-    }
   }
 
-  function handleBlur(field: keyof Settings) {
+  /** Commit a typed number on blur or Enter. Out-of-range input is refused and reverted. */
+  function commitField(field: NumericSettingKey) {
+    if (!(field in localValues)) return;
+    const raw = localValues[field] as string;
     setLocalValues((prev) => {
       const updated = { ...prev };
       delete updated[field];
       return updated;
     });
+    const parsed = parseSettingValue(field, raw);
+    if (!parsed.ok) {
+      setFieldErrors((prev) => ({ ...prev, [field]: parsed.error }));
+      return;
+    }
+    const next: Settings = { ...settings, [field]: parsed.value };
+    const thrErr = field === "yellowThresholdPct" || field === "redThresholdPct"
+      ? thresholdsError(next.yellowThresholdPct, next.redThresholdPct)
+      : null;
+    if (thrErr) {
+      setFieldErrors((prev) => ({ ...prev, [field]: thrErr }));
+      return;
+    }
+    setFieldErrors((prev) => {
+      const updated = { ...prev };
+      delete updated[field];
+      return updated;
+    });
+    if (parsed.value !== settings[field]) commit(next);
   }
 
-  function fieldValue(field: keyof Settings): string | number {
+  function onEnter(field: NumericSettingKey) {
+    return (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitField(field);
+      }
+    };
+  }
+
+  function fieldValue(field: NumericSettingKey): string | number {
     return field in localValues ? (localValues[field] as string) : (settings[field] as number);
+  }
+
+  function fieldError(field: NumericSettingKey) {
+    const err = fieldErrors[field];
+    return err ? <p className="text-xs text-red-400 mt-1" role="alert">{err}</p> : null;
+  }
+
+  function commitDob() {
+    if (dobLocal === null) return;
+    const value = dobLocal;
+    setDobLocal(null);
+    const dob = value ? new Date(value + 'T00:00:00').getTime() : undefined;
+    if (dob !== undefined && (isNaN(dob) || dob > Date.now())) return; // refused: invalid or future date
+    if (dob !== settings.dateOfBirthMs) update({ dateOfBirthMs: dob });
   }
 
   async function handleImport() {
@@ -124,12 +164,14 @@ export default function SettingsPage() {
             type="number"
             value={fieldValue("weightKg")}
             onChange={(e) => handleChange("weightKg", e.target.value)}
-            onBlur={() => handleBlur("weightKg")}
+            onBlur={() => commitField("weightKg")}
+            onKeyDown={onEnter("weightKg")}
             step="0.01"
-            min="0.5"
-            max="30"
+            min={SETTING_LIMITS.weightKg.min}
+            max={SETTING_LIMITS.weightKg.max}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
           />
+          {fieldError("weightKg")}
         </div>
 
         {/* ml per kg per day */}
@@ -139,12 +181,14 @@ export default function SettingsPage() {
             type="number"
             value={fieldValue("mlPerKgPerDay")}
             onChange={(e) => handleChange("mlPerKgPerDay", e.target.value)}
-            onBlur={() => handleBlur("mlPerKgPerDay")}
+            onBlur={() => commitField("mlPerKgPerDay")}
+            onKeyDown={onEnter("mlPerKgPerDay")}
             step="5"
-            min="50"
-            max="300"
+            min={SETTING_LIMITS.mlPerKgPerDay.min}
+            max={SETTING_LIMITS.mlPerKgPerDay.max}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
           />
+          {fieldError("mlPerKgPerDay")}
         </div>
 
         {/* Preferred bottle size */}
@@ -158,7 +202,7 @@ export default function SettingsPage() {
                 <button
                   key={size}
                   type="button"
-                  onClick={() => setSettings((prev) => ({ ...prev, preferredBottleWaterMl: size }))}
+                  onClick={() => update({ preferredBottleWaterMl: size })}
                   className={`py-3 rounded-lg font-semibold transition-colors flex flex-col items-center gap-0.5 ${
                     isSelected
                       ? 'bg-blue-600 text-white'
@@ -183,12 +227,14 @@ export default function SettingsPage() {
             type="number"
             value={fieldValue("yellowThresholdPct")}
             onChange={(e) => handleChange("yellowThresholdPct", e.target.value)}
-            onBlur={() => handleBlur("yellowThresholdPct")}
+            onBlur={() => commitField("yellowThresholdPct")}
+            onKeyDown={onEnter("yellowThresholdPct")}
             step="1"
-            min="1"
-            max="49"
+            min={1}
+            max={50}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
           />
+          {fieldError("yellowThresholdPct")}
         </div>
 
         {/* Seriously off threshold */}
@@ -198,12 +244,14 @@ export default function SettingsPage() {
             type="number"
             value={fieldValue("redThresholdPct")}
             onChange={(e) => handleChange("redThresholdPct", e.target.value)}
-            onBlur={() => handleBlur("redThresholdPct")}
+            onBlur={() => commitField("redThresholdPct")}
+            onKeyDown={onEnter("redThresholdPct")}
             step="1"
-            min="1"
-            max="49"
+            min={1}
+            max={50}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
           />
+          {fieldError("redThresholdPct")}
           <p className="text-xs text-slate-500 mt-2">
             Within ±{settings.yellowThresholdPct}% of target = on track. Beyond ±{settings.redThresholdPct}% = seriously off.
           </p>
@@ -217,7 +265,7 @@ export default function SettingsPage() {
               <button
                 key={fmt}
                 type="button"
-                onClick={() => setSettings((prev) => ({ ...prev, timeFormat: fmt }))}
+                onClick={() => update({ timeFormat: fmt })}
                 className={`flex-1 py-3 rounded-lg font-semibold transition-colors ${
                   settings.timeFormat === fmt
                     ? 'bg-blue-600 text-white'
@@ -234,18 +282,18 @@ export default function SettingsPage() {
         <div className="bg-slate-800 rounded-xl p-4">
           <label className="block text-sm text-slate-400 mb-2">📅 Feeding Timeline view</label>
           <div className="flex gap-2">
-            {(['timeline', 'cards'] as const).map((v) => (
+            {(['zones', 'timeline', 'cards'] as const).map((v) => (
               <button
                 key={v}
                 type="button"
-                onClick={() => setSettings((prev) => ({ ...prev, feedingTimelineView: v }))}
+                onClick={() => update({ feedingTimelineView: v })}
                 className={`flex-1 py-3 rounded-lg font-semibold transition-colors capitalize ${
-                  (settings.feedingTimelineView ?? 'timeline') === v
+                  (settings.feedingTimelineView ?? 'zones') === v
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                 }`}
               >
-                {v === 'timeline' ? '📈 Timeline' : '📱 Cards'}
+                {v === 'zones' ? '🌈 Zones' : v === 'timeline' ? '📈 Classic' : '📱 Cards'}
               </button>
             ))}
           </div>
@@ -259,7 +307,7 @@ export default function SettingsPage() {
               <button
                 key={s}
                 type="button"
-                onClick={() => setSettings(prev => ({ ...prev, sex: s }))}
+                onClick={() => update({ sex: s })}
                 className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
                   settings.sex === s ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                 }`}
@@ -274,16 +322,11 @@ export default function SettingsPage() {
           <label className="block text-sm text-slate-400 mb-2">🎂 Date of birth</label>
           <input
             type="date"
-            value={settings.dateOfBirthMs ? new Date(settings.dateOfBirthMs).toISOString().slice(0, 10) : ''}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (value) {
-                const dob = new Date(value + 'T00:00:00').getTime();
-                setSettings(prev => ({ ...prev, dateOfBirthMs: dob }));
-              } else {
-                setSettings(prev => ({ ...prev, dateOfBirthMs: undefined }));
-              }
-            }}
+            value={dobLocal ?? (settings.dateOfBirthMs ? new Date(settings.dateOfBirthMs).toISOString().slice(0, 10) : '')}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setDobLocal(e.target.value)}
+            onBlur={commitDob}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitDob(); } }}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 text-lg focus:outline-none focus:border-blue-500"
           />
           <p className="text-xs text-slate-500 mt-2">Used for WHO growth chart z-score calculation.</p>

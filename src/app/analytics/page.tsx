@@ -214,7 +214,9 @@ function WeightChart({ weights, dateOfBirthMs, sex }: {
   const daySpan = sorted2.length >= 2 ? (latest.timestamp - oldest.timestamp) / 86_400_000 : null;
   const gainPerWeek = gainKg !== null && daySpan && daySpan > 0 ? (gainKg / daySpan * 7 * 1000) : null; // g/week
 
-  // WHO z-score
+  // WHO z-score: long-run mean of all weigh-ins, shown as the "average channel" trend marker.
+  // The dashboard header and the weight estimate use the latest weigh-in's z instead
+  // (design/2026-11-26-live-rules-and-weight-anchor.md §8).
   const currentZ = showWho && dateOfBirthMs && sex
     ? estimateZChannel(sorted2, dateOfBirthMs, sex)
     : null;
@@ -250,7 +252,7 @@ function WeightChart({ weights, dateOfBirthMs, sex }: {
             {/* Baby z-score */}
             <div className="flex items-center gap-2">
               <span className="inline-block w-6 h-0.5 bg-green-400 rounded" />
-              <span className="text-xs text-slate-400">Baby —</span>
+              <span className="text-xs text-slate-400">Baby · average channel —</span>
               <span className={`font-bold text-sm ${
                 Math.abs(currentZ) <= 1 ? 'text-green-400' :
                 Math.abs(currentZ) <= 2 ? 'text-yellow-400' : 'text-red-400'

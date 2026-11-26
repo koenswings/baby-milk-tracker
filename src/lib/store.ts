@@ -1,6 +1,7 @@
 "use client";
 
 import { Feed, Settings } from "@/types";
+import type { HistoryEntry } from "@/lib/settingsHistory";
 
 const MIGRATED_KEY = "bmt_migrated_v2";
 
@@ -73,6 +74,17 @@ export async function getSettings(): Promise<Settings> {
     merged.preferredBottleWaterMl = saved.nextBottleWaterMl || saved.standardBottleVolume || 90;
   }
   return merged;
+}
+
+/** Settings history (JSONL on the server) for replaying past zones. Empty on error. */
+export async function getSettingsHistory(): Promise<HistoryEntry[]> {
+  try {
+    const res = await fetch("/api/settings/history", { cache: "no-store" });
+    if (!res.ok) return [];
+    return (await res.json()) as HistoryEntry[];
+  } catch {
+    return [];
+  }
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
