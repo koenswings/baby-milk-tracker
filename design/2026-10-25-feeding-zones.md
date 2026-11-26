@@ -6,6 +6,8 @@
 
 **Related:** [next-session-predictor-design-v3.md](next-session-predictor-design-v3.md) §4, §7, §8.7 · [sonnet-review-calculation-audit.md](sonnet-review-calculation-audit.md) · Notion *!Milkwise* "Milk Balance" / Predictor 3
 
+> **Refinement (2026-11-26).** The freeze rule in §10 is refined in [2026-11-26-live-rules-and-weight-anchor.md](2026-11-26-live-rules-and-weight-anchor.md): status *time* stays frozen at `lastFeed.timestamp`, but rule settings (ml/kg, bottle size, thresholds, date of birth, sex) are live, each segment uses the rule in effect at its end, and weight uses data up to `max(lastFeed.timestamp, latest weigh-in time)`. Approved by Koen + MilkWise Design Review; implementation pending.
+
 All times are Europe/Brussels. Numbers were produced with the real web `calculations.ts` (vendored copy, byte-identical to `main`) by `verify_zones.ts` (see §9).
 
 ---
@@ -174,7 +176,7 @@ Rules proposed for discussion:
 - **Deep overfeed**: zones can be > 48 h away → reuse the 48 h cap from `intakeReadyAtMs` and show "later".
 - **Plateau (n = 0)**: zones stretch; no change to rules.
 - **DST / time zone**: all arithmetic is in epoch ms, so zones are exact across the DST switch (25/10 03:00 → 02:00 today); only labels and the hour ruler use local time (`fmtTime`, `fmtHour`). Check the ruler (`CanTakeCard.tsx:241-245` assumes `t % HOUR_MS === 0` is a full hour, which is only true in UTC-aligned offsets — fine for whole-hour offsets).
-- **Weight/target changes**: superseded — D per segment uses `effectiveWeightKg` at that segment's feed time (§10, replay weight), so nothing shifts at midnight; the visible history is the rolling 24 h before now (§10, 2026-10-28).
+- **Weight/target changes**: superseded — D per segment uses `effectiveWeightKg` at that segment's feed time (§10, replay weight), so nothing shifts at midnight; the visible history is the rolling 24 h before now (§10, 2026-10-28). **Further refined 2026-11-26:** a segment uses the rule in effect at its end, and a weigh-in after the last feed applies immediately — see [2026-11-26-live-rules-and-weight-anchor.md](2026-11-26-live-rules-and-weight-anchor.md).
 
 ## 7. Impact on invariants
 
@@ -211,6 +213,7 @@ Verifier (outside the repo, read-only): `/workspace/milkwise-verify/verify_zones
 | 2026-10-25 (PR review) | **Zones frozen at last feed, highlight evaluated now.** Zone open/close times are computed once from `refMs = lastFeed.timestamp` (`zoneSegments`, no clock input) and recomputed only when feeds, settings, history or weights change (the rolling 24 h window, 2026-10-28, only changes which segments are visible, never their times). A clock tick re-runs only the highlight (`highlightSegmentsAt` → `highlightZoneRows` at `atMs = now`) and never re-reads or reloads feeds. | MilkWise Lead |
 | 2026-10-25 (PR review) | **Replay weight:** each past segment's daily target uses `effectiveWeightKg(weights, …, refMs = feed.timestamp)` (shared block). Only weigh-ins at or before the feed count; the latest one is used directly if it is ≤ 7 days older than the feed (inclusive), otherwise the WHO model (when DOB and sex are known). The current segment uses the same rule at `lastFeed.timestamp`, and so does the frozen status card (`statusWeight`), so they never disagree; a new weigh-in takes effect from the next feed. | MilkWise Lead |
 | 2026-10-25 (PR review) | **All calculation parameters frozen at `lastFeed.timestamp`.** The status card (and the other dashboard calc cards) and the current zone segment both use `frozenCalcSettings`: `settingsForFeed` from the settings history at the last feed for ml/kg/day, preferred size, thresholds and every other calc param, plus `effectiveWeightKg` at that time. Any settings change or weigh-in after the last feed takes effect from the next feed. Only display-only keys (time format, timeline view) are read live. | MilkWise Lead |
+| 2026-11-26 | **Freeze rule refined.** Status *time* stays frozen at `lastFeed.timestamp` (no ticking clock). Rule settings (`mlPerKgPerDay`, `preferredBottleWaterMl`, `yellowThresholdPct`, `redThresholdPct`, date of birth, sex) are live for the open segment and the current status. Each zone segment uses the rule in effect at its **end**. Weight reference time = `max(lastFeed.timestamp, latest weigh-in time)`. Details: [2026-11-26-live-rules-and-weight-anchor.md](2026-11-26-live-rules-and-weight-anchor.md). | Koen + MilkWise Design Review |
 
 ## 11. Proposed UI refinements (ideas from Koen, 2026-10-25 — proposed, not decided)
 
