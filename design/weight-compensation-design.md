@@ -3,8 +3,8 @@
 **Project:** Baby Milk Tracker / MilkWise  
 **Author:** Kit  
 **Date:** 2026-06-15  
-**Last updated:** 2026-07-25  
-**Status:** Implemented ✅
+**Last updated:** 2026-11-26  
+**Status:** Implemented ✅ — the “average all z-scores” estimate in §2.1 is **superseded** by [2026-11-26-live-rules-and-weight-anchor.md](2026-11-26-live-rules-and-weight-anchor.md) (implementation pending). The 7-day short-circuit in §2.2 stays.
 
 ---
 
@@ -34,7 +34,9 @@ The app uses the **WHO Child Growth Standards (2006)**, implemented as the LMS m
 
 1. Compute a z-score for each weight entry: `Z = [(X/M)^L − 1] / (L × S)` where L, M, S are the WHO parameters interpolated from the published table at the baby's age in months.
 2. Average all z-scores to estimate the baby's **z-channel** — her individual growth percentile.
+   > **Superseded (2026-11-26).** For the weight **estimate**, this mean-of-all-z channel is replaced by anchoring the WHO projection on the latest weigh-in's z. See [2026-11-26-live-rules-and-weight-anchor.md](2026-11-26-live-rules-and-weight-anchor.md). The long-run mean is kept only as the analytics trend marker, labelled “average channel”.
 3. Project forward to today: `predictedWeight = M(today) × (1 + L(today) × S(today) × Z_mean)^(1/L(today))`
+   > **Superseded (2026-11-26)** for the estimate: `Z_mean` becomes the latest weigh-in's z. Same record as step 2.
 
 **Inputs required:** `dateOfBirthMs` and `sex` in `settings.json` (both optional; WHO prediction is skipped if missing).
 
@@ -45,6 +47,8 @@ When the latest weight entry is **≤ 7 days old**, the measured weight is used 
 **Reason:** The z-channel is an average over all historical measurements. If older entries put the baby at a higher z than the latest measurement, the projection can overshoot a freshly measured weight (e.g. showing 7.62 kg when 7.5 kg was measured yesterday). A recent measurement is always more accurate than a model projection.
 
 The WHO model only runs when the most recent weigh-in is more than 7 days in the past.
+
+> **Note (2026-11-26).** This 7-day short-circuit **stays**. The “average all z-scores” channel it refers to is superseded for the estimate — see §2.1 and [2026-11-26-live-rules-and-weight-anchor.md](2026-11-26-live-rules-and-weight-anchor.md). With the new anchor, a projection may also never fall below the latest weigh-in.
 
 ```typescript
 // page.tsx — effective weight derivation
