@@ -13,13 +13,13 @@ import { Feed, Settings } from "@/types";
 import { ZoneRow } from "@/lib/calculations";
 import { HistoryEntry } from "@/lib/settingsHistory";
 import { sizeColour } from "@/lib/sizeColours";
-import { highlightSegmentsAt, zoneSegments, historyWindowStart, segmentsFromMs, visibleSegments } from "@/lib/zoneSegments";
+import { highlightSegmentsAt, zoneSegments, historyWindowStart, overTargetPct, segmentsFromMs, visibleSegments } from "@/lib/zoneSegments";
 
 interface Props {
   feeds: Feed[];
   settings: Settings;
   history: HistoryEntry[];
-  weights: Array<{ timestamp: number; weightKg: number }>; // weigh-ins: D per segment = weight at its feed
+  weights: Array<{ timestamp: number; weightKg: number }>; // weigh-ins: D per segment = weight at its end (live for the open one)
   now: number;           // display clock: highlight and "now" line only
   timeFormat: "24h" | "12h";
 }
@@ -105,6 +105,8 @@ export default function ZonesTimelineCard({ feeds, settings, history, weights, n
   for (let t = Math.ceil(T_START / HOUR_MS) * HOUR_MS; t <= T_END; t += HOUR_MS) ticks.push(t);
 
   const highlighted = current?.rows.find((r) => r.isHighlighted) ?? null;
+  // Big cut (2026-11-26 §9): intake already ≥ the live target → "over target", not a far-away time.
+  const overPct = current ? overTargetPct(feeds, current.dailyTargetMl / 24, current.dailyTargetMl, now) : null;
   const nextOpen = current?.rows
     .filter((r) => r.state === "zone" && r.openMs > now)
     .sort((a, b) => a.openMs - b.openMs)[0];
@@ -122,6 +124,10 @@ export default function ZonesTimelineCard({ feeds, settings, history, weights, n
             {highlighted.highlightKind === "under-target"
               ? ` — under target (${Math.round(highlighted.landingNowPct)}%)`
               : ` — lands ${Math.round(highlighted.landingNowPct)}%`}
+          </span>
+        ) : overPct !== null ? (
+          <span className="text-orange-400 font-semibold" data-testid="zones-over-target">
+            Over target ({Math.round(overPct)}% of daily target) — no bottle advised yet
           </span>
         ) : nextOpen ? (
           <span className="text-slate-300">Next: {nextOpen.waterMl} ml from {fmtTime(nextOpen.openMs, timeFormat)}</span>

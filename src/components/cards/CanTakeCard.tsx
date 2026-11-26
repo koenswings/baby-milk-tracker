@@ -527,7 +527,8 @@ export default function CanTakeCard({
             <div className="text-xs mt-1.5 px-0.5">
               {isStomachLimited
                 ? <span className="text-slate-400">Stomach full — next feed at {fmtTime(progression[0].readyAtMs, timeFormat)}</span>
-                : <span className="text-orange-400">Well fed — all sizes available later</span>
+                // intake ≥ live target (big cut, 2026-11-26 §9): "over target", not a far-away time
+                : <span className="text-orange-400">Over target ({Math.round((currentSmoothed / dailyTargetMl) * 100)}% of daily target) — no feed needed yet</span>
               }
             </div>
           );

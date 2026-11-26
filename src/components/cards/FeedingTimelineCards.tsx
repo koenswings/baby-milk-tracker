@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Feed } from "@/types";
 import { PredictorResult } from "@/types";
 import { canTakeProgression, waterToMilk, FORMULA_TABLE, smoothedAtTime } from "@/lib/calculations";
+import { overTargetPct } from "@/lib/zoneSegments";
 
 const STANDARD_SIZES = new Set(FORMULA_TABLE.map(e => e.water));
 
@@ -57,6 +58,8 @@ export default function FeedingTimelineCards({
   // Distinguish why everything is in the future: stomach full (underfed) vs genuinely overfed
   const currentSmoothed = allFuture ? smoothedAtTime(feeds, hourlyRate, now) : 0;
   const isStomachLimited = allFuture && currentSmoothed < dailyTargetMl;
+  // Big cut (2026-11-26 §9): intake already ≥ the live target → "over target", not a far-away time.
+  const overPct = overTargetPct(feeds, hourlyRate, dailyTargetMl, now);
   const cols = Math.min(progression.length, 4) || 1;
   const gridClass = cols === 1 ? 'grid-cols-1' : cols === 2 ? 'grid-cols-2' :
     cols === 3 ? 'grid-cols-3' : 'grid-cols-4';
@@ -95,9 +98,9 @@ export default function FeedingTimelineCards({
                       : `${entry.waterMl} 🍼`}
                   </div>
                   <div className={`font-mono font-bold text-lg tracking-wide tabular-nums leading-none ${isNow ? 'text-green-300' : 'text-blue-300'}`}>
-                    {isNow ? 'now' : fmtTime(entry.readyAtMs, timeFormat)}
+                    {isNow ? 'now' : overPct !== null ? 'over target' : fmtTime(entry.readyAtMs, timeFormat)}
                   </div>
-                  {!isNow && (
+                  {!isNow && overPct === null && (
                     <div className="text-xs text-slate-400 mt-0.5">{fmtRel(entry.readyAtMs, now)}</div>
                   )}
 
@@ -109,7 +112,9 @@ export default function FeedingTimelineCards({
             <div className="text-xs mt-2 px-0.5">
               {isStomachLimited
                 ? <span className="text-slate-400">Stomach full — next feed at {fmtTime(progression[0].readyAtMs, timeFormat)}</span>
-                : <span className="text-orange-400">Well fed — all sizes available later</span>
+                : overPct !== null
+                  ? <span className="text-orange-400">Over target ({Math.round(overPct)}% of daily target) — no feed needed yet</span>
+                  : <span className="text-orange-400">Well fed — all sizes available later</span>
               }
             </div>
           )}
